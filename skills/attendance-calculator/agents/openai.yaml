@@ -1,0 +1,4 @@
+interface:
+  display_name: "考勤核算助手"
+  short_description: "汇总飞书考勤、假期、加班并生成综合表"
+  default_prompt: "使用 attendance-calculator 处理月度飞书考勤、花名册、加班和育儿假数据，生成可供 HR 复核的考勤汇总表与异常说明。"

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Attendance Settlement"
+  short_description: "Prepare attendance summaries for HR settlement and payroll handoff."
+  default_prompt: "Use $attendance-settlement to prepare this monthly attendance summary for HR settlement and flag fields that need manual confirmation."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "五险一金汇总"
+  short_description: "按月并表五险一金并输出工资可用汇总表。"
+  default_prompt: "使用 $social-insurance-fund 将本月养老、失业、医保、公积金及广思专项五险文件并入工资可用的五险一金汇总表。"
+
+policy:
+  allow_implicit_invocation: true
