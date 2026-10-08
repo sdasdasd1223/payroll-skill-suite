@@ -1,0 +1,15 @@
+工资核算 Skill 一键在线安装
+
+适用系统：Windows 10 或 Windows 11
+
+安装步骤：
+1. 在电脑左下角搜索 PowerShell 并打开。
+2. 复制下面整条命令，粘贴后按回车。
+3. 看到“安装成功”后，完全退出并重新启动 Codex。
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$z=Join-Path $env:TEMP 'payroll-skill-suite.zip'; $d=Join-Path $env:TEMP 'payroll-skill-suite-online'; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; if(Test-Path -LiteralPath $d){Remove-Item -LiteralPath $d -Recurse -Force}; Expand-Archive -LiteralPath $z -DestinationPath $d -Force; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包中没有找到 install.ps1'}; & $i.FullName"
+
+仓库地址：
+https://github.com/sdasdasd1223/payroll-skill-suite
+
+安装脚本会先检查安装包；电脑已有旧版 Skill 时会自动备份，然后安装 payroll-operations、attendance-calculator、attendance-settlement 和 social-insurance-fund。
