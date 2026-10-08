@@ -1,0 +1,4 @@
+interface:
+  display_name: "工资发放总流程"
+  short_description: "按月统筹考勤、五险一金、薪资、个税和飞书工资单。"
+  default_prompt: "请按目标月份执行月度工资发放流程，在每个节点索要缺失资料，并生成可复核的工资、个税和飞书工资单文件。"
