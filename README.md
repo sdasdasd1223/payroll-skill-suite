@@ -27,13 +27,14 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $z=Join-Path $env:TEMP 'payrol
 
 重启 Codex 后输入：
 
-> 请使用 payroll-operations，开始核算 YYYY 年 MM 月工资，并按阶段引导我准备资料。
+> 请使用 payroll-operations，开始核算 YYYY 年 MM 月工资。月度资料在“<实际文件夹路径>”，正式模板在“<实际模板路径>”。请先盘点现有文件，告诉我当前阶段缺什么；名称或归属看不懂时直接问我。
 
-Codex 会先引导考勤阶段，不会一次性要求提供全部工资资料。
+建议将同月资料尽量放在一个总文件夹，文件名标明所属月份、公司或负责人、资料类型及确认状态；已有资料不必为了使用 Skill 重新搬运或改名。Codex 会先盘点当前阶段的文件，不会一次性要求提供全部工资资料。若从后续阶段开始，直接说明当前阶段即可。
 
 ## 文档
 
-- [三位人资部署与月度操作教程](docs/hr-payroll-tutorial.docx)
+- [三位人资部署与月度操作教程（当前规则）](skills/payroll-operations/references/hr-deployment-guide.md)
+- `docs/hr-payroll-tutorial.docx` 是旧版参考，使用前以当前 Skill 中的教程为准。
 - [工资核算 Skill 完整内容](工资核算Skill完整内容.md)
 - [在线安装命令](在线安装命令模板.txt)
 - [发布说明](发布说明.md)

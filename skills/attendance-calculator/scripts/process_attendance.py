@@ -13,7 +13,10 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
 OUTPUT_COLUMNS_TEMPLATE = [
-    "部门",
+    "UserID",
+    "所属公司",
+    "一级部门",
+    "三级部门",
     "职级",
     "姓名",
     "迟到分钟数（分钟）",
@@ -38,6 +41,8 @@ OUTPUT_COLUMNS_TEMPLATE = [
     "{yy}年年假（天） 在职结余时间（{yy}.1.1-{yy}.12.31）",
     "考勤情况",
     "缺卡情况",
+    "早退次数",
+    "早退时长（分钟）",
     "异常提示",
 ]
 
@@ -128,6 +133,18 @@ def write_xlsx(path: Path, rows: List[Dict[str, Any]], columns: List[str]) -> No
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+    header_index = {name: index + 1 for index, name in enumerate(columns)}
+    for row_index in range(2, sheet.max_row + 1):
+        rank = sheet.cell(row_index, header_index["职级"]).coordinate
+        late = sheet.cell(row_index, header_index["迟到分钟数（分钟）"]).coordinate
+        missed = sheet.cell(row_index, header_index["漏打卡次数"]).coordinate
+        late_deduction = sheet.cell(row_index, header_index["迟到扣款情况"])
+        missed_deduction = sheet.cell(row_index, header_index["漏打卡扣款情况"])
+        total_deduction = sheet.cell(row_index, header_index["考勤扣款情况（合计）"])
+        late_deduction.value = f'=IF({rank}="组员",{late}*-3,IF({rank}="管理层",{late}*-5,0))'
+        missed_deduction.value = f'=IF({missed}="",0,MAX(0,{missed}-2)*-50)'
+        total_deduction.value = f"=SUM({late_deduction.coordinate}:{missed_deduction.coordinate})"
+        sheet.cell(row_index, header_index["UserID"]).number_format = "@"
     for index, column in enumerate(columns, start=1):
         width = min(max(len(column) + 4, 12), 32)
         sheet.column_dimensions[sheet.cell(row=1, column=index).column_letter].width = width
@@ -181,7 +198,7 @@ def format_date(value: Optional[date]) -> str:
 
 
 def key_for(row: Dict[str, Any]) -> str:
-    employee_id = str(row.get("employee_id", "") or "").strip()
+    employee_id = str(row.get("UserID", "") or row.get("user_id", "") or row.get("employee_id", "") or "").strip()
     if employee_id:
         return f"id:{employee_id}"
     return f"name:{str(row.get('name', '') or '').strip()}"
@@ -241,38 +258,57 @@ def split_birthdates(value: Any) -> List[date]:
     return [item for item in dates if item]
 
 
-def child_year_window_for_month(birthdate: date, month_start: date) -> Optional[Tuple[date, date]]:
-    third_birthday = add_years(birthdate, 3)
-    if month_start > third_birthday:
-        return None
-    anchor_year = month_start.year
-    anchor = birthdate.replace(year=anchor_year)
-    if month_start < anchor:
-        anchor = birthdate.replace(year=anchor_year - 1)
-    end = add_years(anchor, 1)
-    if anchor <= third_birthday and month_start <= third_birthday:
-        return anchor, min(end, third_birthday)
-    return None
+def month_index(day: date) -> int:
+    return day.year * 12 + day.month
 
 
-def childcare_note(childcare_days: float, birthdates: List[date], month_start: date, prior_child_year_days: float) -> str:
-    if childcare_days <= 0:
-        return ""
-    active_windows = [window for birthdate in birthdates if (window := child_year_window_for_month(birthdate, month_start))]
-    notes: List[str] = [f"{clean_number(childcare_days)}天"]
-    if not active_windows:
-        notes.append("需复核：未找到3岁内子女")
-    if childcare_days > 1:
-        notes.append("需复核：本月超过1天")
-    if prior_child_year_days + childcare_days > 10:
-        notes.append("需复核：出生周年内超过10天")
-    return "；".join(notes)
+def month_from_index(index: int) -> Tuple[int, int]:
+    return (index - 1) // 12, (index - 1) % 12 + 1
 
 
-def clean_number(value: float) -> str:
+def childcare_note(
+    childcare_days: float,
+    birthdates: List[date],
+    month_start: date,
+    prior_child_year_days: float,
+    prior_note: str = "",
+) -> Tuple[str, float]:
+    current_index = month_index(month_start)
+    active = [day for day in birthdates if 0 <= current_index - month_index(day) <= 36]
+    prior_match = re.search(r"已使用\s*([0-9.]+)\s*天", prior_note)
+    prior_used = parse_number(prior_match.group(1)) if prior_match else prior_child_year_days
+
+    if not active:
+        total = prior_used + childcare_days
+        if prior_note and childcare_days:
+            return re.sub(r"已使用\s*[0-9.]+\s*天", f"已使用{clean_number(total)}天", prior_note, count=1), total
+        return prior_note, total
+
+    newest = max(active)
+    birth_index = month_index(newest)
+    months_since_birth = current_index - birth_index
+    if months_since_birth <= 12:
+        start_index, end_index = birth_index, birth_index + 12
+    elif months_since_birth <= 24:
+        start_index, end_index = birth_index + 13, birth_index + 24
+    else:
+        start_index, end_index = birth_index + 25, birth_index + 36
+
+    prior_end_match = re.search(r"截至\s*(\d{4})年\s*(\d{1,2})月", prior_note)
+    prior_end_index = int(prior_end_match.group(1)) * 12 + int(prior_end_match.group(2)) if prior_end_match else None
+    entered_new_cycle = current_index == start_index or (prior_end_index is not None and prior_end_index != end_index)
+    total = childcare_days if entered_new_cycle else prior_used + childcare_days
+    end_year, end_month = month_from_index(end_index)
+    note = f"截至{end_year}年{end_month}月（含），有10天育儿假，已使用{clean_number(total)}天"
+    if not prior_note and childcare_days <= 0 and months_since_birth > 1:
+        return "", total
+    return note, total
+
+
+def clean_number(value: float) -> Any:
     if abs(value - round(value)) < 0.00001:
-        return str(int(round(value)))
-    return f"{value:.2f}".rstrip("0").rstrip(".")
+        return int(round(value))
+    return float(f"{value:.2f}")
 
 
 def detail_text(prefix: str, value: Any) -> str:
@@ -294,6 +330,8 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
     month = datetime.strptime(args.month, "%Y-%m").date()
     year = month.year
     columns = output_columns(year)
+    annual_entitlement_column = next(column for column in columns if "年年假（天） 在职时间" in column)
+    annual_remaining_column = next(column for column in columns if "年年假（天） 在职结余时间" in column)
 
     attendance_rows = read_table(args.attendance)
     roster_index, roster_counts = make_index(read_table(args.roster))
@@ -332,12 +370,9 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
         total_deduction = (late_deduction if isinstance(late_deduction, int) else 0) + missed_deduction
 
         overtime_balance = parse_number(overtime.get("overtime_balance_hours"))
-        overtime_to_personal_leave = abs(overtime_balance) if overtime_balance < 0 else 0.0
-
         monthly_personal_leave = parse_number(attendance.get("personal_leave_hours")) if needs_punch else 0.0
-        monthly_personal_leave += overtime_to_personal_leave
-        prior_personal_leave = parse_number(history.get("prior_personal_leave_hours"))
-        cumulative_personal_leave = prior_personal_leave + monthly_personal_leave
+        prior_leave_balance = parse_number(overtime.get("prior_leave_balance_hours"), parse_number(history.get("prior_personal_leave_hours")))
+        cumulative_personal_leave = prior_leave_balance + monthly_personal_leave
 
         monthly_sick_leave = parse_number(attendance.get("sick_leave_hours")) if needs_punch else 0.0
         prior_sick_leave = parse_number(history.get("prior_sick_leave_hours_year"))
@@ -347,21 +382,28 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
         annual_entitlement = annual_leave_entitlement(hire_date, year, month)
         annual_used = parse_number(attendance.get("annual_leave_days"))
         prior_annual_remaining = parse_number(history.get("prior_annual_leave_remaining_days"), annual_entitlement)
-        annual_remaining = max(0.0, prior_annual_remaining - annual_used)
+        prior_annual_entitlement = parse_number(history.get("prior_annual_leave_entitlement_days"), annual_entitlement)
+        annual_remaining = max(0.0, prior_annual_remaining + max(0.0, annual_entitlement - prior_annual_entitlement) - annual_used)
 
         childcare_days = parse_number(attendance.get("childcare_leave_days"))
         birthdates = split_birthdates(roster.get("child_birthdates"))
         prior_childcare = parse_number(history.get("childcare_leave_days_in_child_year"))
-        childcare = childcare_note(childcare_days, birthdates, month, prior_childcare)
+        prior_childcare_note = str(history.get("childcare_leave_note", "") or history.get("育儿假", "") or "")
+        childcare, childcare_total = childcare_note(childcare_days, birthdates, month, prior_childcare, prior_childcare_note)
+        if childcare_days > 1:
+            exceptions.append("育儿假本月超过1天，需复核")
+        if childcare_total > 10:
+            exceptions.append(f"育儿假额度超限：本周期10天，实际累计{clean_number(childcare_total)}天；保留原记录，不自动转换假别")
 
         department = str(attendance.get("department", "") or roster.get("department", "") or "").strip()
         missed_detail = detail_text("缺卡", attendance.get("missed_punch_detail"))
         attendance_detail = join_attendance_detail(attendance.get("late_detail"), attendance.get("personal_leave_detail"))
-        if overtime_to_personal_leave:
-            addition = f"加班结余为负转事假{clean_number(overtime_to_personal_leave)}小时"
-            attendance_detail = "\n".join(part for part in [attendance_detail, f"事假：{addition}"] if part)
-
+        user_id = str(attendance.get("UserID", "") or attendance.get("user_id", "") or roster.get("UserID", "") or roster.get("user_id", "") or history.get("UserID", "") or "").strip()
         row = {
+            "UserID": user_id,
+            "所属公司": str(roster.get("company", "") or roster.get("所属公司", "") or "").strip(),
+            "一级部门": str(roster.get("level1_department", "") or roster.get("1级部门", "") or "").strip(),
+            "三级部门": str(roster.get("level3_department", "") or roster.get("3级部门", "") or "").strip(),
             "部门": department,
             "职级": rank,
             "姓名": str(attendance.get("name", "") or roster.get("name", "") or "").strip(),
@@ -370,23 +412,25 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
             "迟到扣款情况": late_deduction,
             "漏打卡扣款情况": missed_deduction if needs_punch else "",
             "考勤扣款情况（合计）": total_deduction if needs_punch else "",
-            "本月事假时数（小时）": clean_number(monthly_personal_leave) if needs_punch or overtime_to_personal_leave else "",
-            "累计事假时长（小时）": clean_number(cumulative_personal_leave) if needs_punch or overtime_to_personal_leave else "",
+            "本月事假时数（小时）": clean_number(monthly_personal_leave) if needs_punch else "",
+            "累计事假时长（小时）": clean_number(cumulative_personal_leave) if needs_punch else "",
             "累计加班结余（小时）": clean_number(overtime_balance),
             "病假（小时）": clean_number(monthly_sick_leave) if needs_punch else "",
             "育儿假": childcare,
             "奖励金": "",
             "本月应上班总小时数（h）": clean_number(parse_number(attendance.get("required_work_hours"), args.paid_days * args.hours_per_day)),
             "入职时间": format_date(hire_date),
-            "离职时间": "",
+            "离职时间": format_date(parse_date(roster.get("resignation_date"))),
             "上月病假时长": clean_number(prior_sick_leave),
             "病假天数合计(年/小时)": clean_number(ytd_sick_leave),
-            columns[19]: clean_number(annual_entitlement),
+            annual_entitlement_column: clean_number(annual_entitlement),
             "上月年假剩余天数": clean_number(prior_annual_remaining),
             "本月使用年假（天）": clean_number(annual_used),
-            columns[22]: clean_number(annual_remaining),
+            annual_remaining_column: clean_number(annual_remaining),
             "考勤情况": attendance_detail,
             "缺卡情况": missed_detail,
+            "早退次数": parse_int(attendance.get("early_leave_count")),
+            "早退时长（分钟）": clean_number(parse_number(attendance.get("early_leave_minutes"))),
             "异常提示": "；".join(exceptions),
         }
         result_rows.append(row)
