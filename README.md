@@ -2,9 +2,17 @@
 
 这是一套用于公司月度工资核算的 Codex Skills，覆盖考勤初算、人工确认、五险一金并表、工资计算、个税模板和飞书工资单生成。
 
-## 一键安装
+## 在 Codex 中安装（Windows / macOS）
 
-适用于 Windows 10 或 Windows 11。
+打开 Codex 新对话，把下面这段话完整发送。Codex 会识别当前系统，使用仓库中的对应脚本；人资无需自行打开终端：
+
+> 请从 https://github.com/sdasdasd1223/payroll-skill-suite 安装或更新四个工资核算 Skill。请先核对仓库与安装脚本，在 Windows 上使用 install.ps1，在 macOS 上使用 install.sh；如有旧版先备份。完成后核对四个 Skill 均已安装，告诉我备份位置和是否需要重启 Codex。不要修改 GitHub 仓库，不要把我的个人资料路径写入共用 Skill；这一步不开始算工资。若权限或安装失败，请给我具体错误。
+
+安装完成后完全退出并重启 Codex。安装文件默认位于各自用户目录下的 `.codex/skills`；设置了 `CODEX_HOME` 时，以其指定位置为准。
+
+## 手动安装（备用）
+
+### Windows 10 / 11
 
 1. 在电脑左下角搜索并打开 **PowerShell**。
 2. 复制下面整条命令，粘贴后按回车。
@@ -15,6 +23,16 @@ Set-ExecutionPolicy -Scope Process Bypass -Force; $z=Join-Path $env:TEMP 'payrol
 ```
 
 以后更新到最新版时，重新运行同一条命令即可。安装程序会先把电脑上的旧 Skill 备份到 `.codex\skill-backups`，再安装新版本。
+
+### macOS
+
+从本仓库下载或克隆完整安装包后，在“终端”进入仓库目录，执行：
+
+```bash
+bash install.sh
+```
+
+脚本会先检查安装包、备份旧版，再安装到当前用户的 `~/.codex/skills`（如果设置了 `CODEX_HOME`，则使用该位置），最后核对安装结果。无需管理员权限。不要只下载单个脚本；它需要同目录的 `skills/` 文件夹。
 
 ## 安装内容
 

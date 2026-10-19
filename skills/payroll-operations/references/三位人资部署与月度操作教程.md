@@ -8,15 +8,21 @@
 
 ## 2. 首次部署
 
-### 一键在线安装
+### 在 Codex 中安装（Windows 与 macOS）
 
-每台电脑首次使用时，打开 PowerShell，复制下面整条命令并按回车：
+每台电脑首次使用时，打开 Codex 新对话，完整复制并发送：
+
+```text
+请从 https://github.com/sdasdasd1223/payroll-skill-suite 安装或更新四个工资核算 Skill。请先核对仓库与安装脚本，在 Windows 上使用 install.ps1，在 macOS 上使用 install.sh；如有旧版先备份。完成后核对四个 Skill 均已安装，告诉我备份位置和是否需要重启 Codex。不要修改 GitHub 仓库，不要把我的个人资料路径写入共用 Skill；这一步不开始算工资。若权限或安装失败，请给我具体错误。
+```
+
+人资不必亲自操作终端。若需要手动安装，Windows 可使用以下 PowerShell 命令；macOS 需下载完整仓库，在仓库根目录运行 `bash install.sh`。不能只下载单个脚本，因其需要同目录的 `skills/` 文件夹。
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force; $z=Join-Path $env:TEMP 'payroll-skill-suite.zip'; $d=Join-Path $env:TEMP 'payroll-skill-suite-online'; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; if(Test-Path -LiteralPath $d){Remove-Item -LiteralPath $d -Recurse -Force}; Expand-Archive -LiteralPath $z -DestinationPath $d -Force; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包中没有找到 install.ps1'}; & $i.FullName
 ```
 
-看到“安装成功”后，完全退出并重新启动 Codex。以后更新也运行同一条命令，安装程序会先备份旧版本再安装最新版。
+看到“安装成功”后，完全退出并重新启动 Codex。以后更新也可以在 Codex 中重新发送同一请求；安装程序会先备份旧版本再安装最新版。
 
 公开仓库地址：`https://github.com/sdasdasd1223/payroll-skill-suite`
 
@@ -26,8 +32,8 @@ GitHub 仓库和安装包保存三位人资共用的流程规则。每位人资�
 
 安装完成后确认：
 
-1. 确认 `payroll-operations`、`attendance-calculator`、`attendance-settlement`、`social-insurance-fund` 已出现在 `C:\Users\<当前用户名>\.codex\skills\`。
-2. 确认每个 skill 根目录都有 `SKILL.md`；`payroll-operations\agents\openai.yaml` 存在且界面文字为中文。
+1. 确认 `payroll-operations`、`attendance-calculator`、`attendance-settlement`、`social-insurance-fund` 已出现在用户自己的 Codex Skills 目录；Windows 通常在 `C:\Users\<当前用户名>\.codex\skills\`，macOS 通常在 `~/.codex/skills/`；设置了 `CODEX_HOME` 时以该位置为准。
+2. 确认每个 Skill 根目录都有 `SKILL.md`；`payroll-operations/agents/openai.yaml` 存在且界面文字为中文。
 3. 确认飞书 CLI 已安装，并使用本公司有权读取花名册和通讯录的账号登录。
 4. 重启 Codex，使新安装或更新的 skill 生效。
 5. 第一次运行时说：`请使用 payroll-operations，开始 <工资月份> 的工资核算。资料在 <实际文件夹路径>，请先盘点文件，并按阶段告诉我缺什么。`

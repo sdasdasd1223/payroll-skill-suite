@@ -1,4 +1,8 @@
-工资核算 Skill 一键在线安装
+工资核算 Skill 在线安装（Windows PowerShell 备用方式）
+
+人资首选：在 Windows 或 macOS 的 Codex 对话中，粘贴 README.md 里的“在 Codex 中安装”请求，由 Codex 选择系统对应的安装脚本。
+
+macOS 手动备用方式：下载完整仓库，在仓库根目录运行 bash install.sh；不要只下载脚本。
 
 适用系统：Windows 10 或 Windows 11
 

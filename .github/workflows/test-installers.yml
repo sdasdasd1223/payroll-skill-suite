@@ -1,0 +1,49 @@
+name: Test payroll Skill installers
+
+on:
+  push:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'skills/**'
+      - '.github/workflows/test-installers.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'skills/**'
+      - '.github/workflows/test-installers.yml'
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install and update in an isolated Codex home
+        shell: bash
+        run: |
+          bash -n install.sh
+          test_home="$(mktemp -d)"
+          bash install.sh "$test_home"
+          for name in payroll-operations attendance-calculator attendance-settlement social-insurance-fund; do
+            test -f "$test_home/skills/$name/SKILL.md"
+          done
+          printf '\n# backup-check\n' >> "$test_home/skills/payroll-operations/SKILL.md"
+          bash install.sh "$test_home"
+          backup="$(find "$test_home/skill-backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$backup"
+          grep -q backup-check "$backup/payroll-operations/SKILL.md"
+          if grep -q backup-check "$test_home/skills/payroll-operations/SKILL.md"; then exit 1; fi
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install in an isolated Codex home
+        shell: pwsh
+        run: |
+          $testHome = Join-Path $env:RUNNER_TEMP 'payroll-installer-test'
+          ./install.ps1 -CodexHome $testHome
+          foreach ($name in @('payroll-operations', 'attendance-calculator', 'attendance-settlement', 'social-insurance-fund')) {
+            if (-not (Test-Path (Join-Path $testHome "skills/$name/SKILL.md"))) { throw "Missing $name" }
+          }
