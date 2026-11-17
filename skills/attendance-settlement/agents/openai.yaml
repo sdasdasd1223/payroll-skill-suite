@@ -1,7 +1,6 @@
 interface:
-  display_name: "Attendance Settlement"
-  short_description: "Prepare attendance summaries for HR settlement and payroll handoff."
-  default_prompt: "Use $attendance-settlement to prepare this monthly attendance summary for HR settlement and flag fields that need manual confirmation."
-
+  display_name: "考勤交接复核"
+  short_description: "核对考勤确认版本、奖励金及假期结余，检查工资交接是否存在漏项"
+  default_prompt: "请使用 $attendance-settlement 检查本月考勤及奖励金核验结果，保留人工确认并列明进入工资前的待核项目。"
 policy:
   allow_implicit_invocation: true

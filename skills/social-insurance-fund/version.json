@@ -1,0 +1,10 @@
+{
+  "version": "2026.11.17.1",
+  "files": {
+    "agents/openai.yaml": "463728633f43ff31dc427ce2b8c08069495c24824d88e97a9c36557e174497ee",
+    "scripts/build_social_insurance_fund.py": "a5955c3ae3688e88160c46bade5d01f4c8eb0a7494c6e9972534eeb10eb8bd1f",
+    "scripts/diagnostics_bridge.py": "765fed862f9c405da9820c4cf89e7bf9110f08a5cf3b64b470706f0495e96f6f",
+    "scripts/normalized_social.py": "b68e3a1dd19f7a143df42110243346339187664fd57fbd970e0595759b99c048",
+    "SKILL.md": "6ca7960c984a5bdd5227d20a73b70c88ef452c553946d8478827614823daaf38"
+  }
+}

@@ -1,62 +1,52 @@
-# 工资核算 Skill 套件
+# 工资核算技能及自动诊断安装包
 
-这是一套用于公司月度工资核算的 Codex Skills，覆盖考勤初算、人工确认、五险一金并表、工资计算、个税模板和飞书工资单生成。
+当前版本：2026.11.17.1。
 
-## 在 Codex 中安装（Windows / macOS）
+本工具会自动记录核算运行情况、文件版本和脱敏错误信息，仅供公司授权管理员排查，默认不上传完整聊天和工资原件。
 
-打开 Codex 新对话，把下面这段话完整发送。Codex 会识别当前系统，使用仓库中的对应脚本；人资无需自行打开终端：
+本包包含四个人资技能及自动诊断组件。原月度核算和人工确认规则保持；诊断用于排查，不能代替确认发薪。记录来自已接入的六个程序入口，不是所有聊天或所有工具操作的完整备份。
 
-> 请从 https://github.com/sdasdasd1223/payroll-skill-suite 安装或更新四个工资核算 Skill。请先核对仓库与安装脚本，在 Windows 上使用 install.ps1，在 macOS 上使用 install.sh；如有旧版先备份。完成后核对四个 Skill 均已安装，告诉我备份位置和是否需要重启 Codex。不要修改 GitHub 仓库，不要把我的个人资料路径写入共用 Skill；这一步不开始算工资。若权限或安装失败，请给我具体错误。
+## 人资如何安装
 
-安装完成后完全退出并重启 Codex。安装文件默认位于各自用户目录下的 `.codex/skills`；设置了 `CODEX_HOME` 时，以其指定位置为准。
+优先使用管理员分发给本机的专属压缩包。解压完整文件夹，在Codex中说：
 
-## 手动安装（备用）
+> 请检查并安装这个文件夹里的工资核算套件。Windows执行install.ps1，macOS执行install.sh，保留原有记录并备份旧技能。安装后核对四个技能、诊断组件、设备登记和定时同步的实际状态，不把“已安装”当“已上传”，告诉我是否需要重启。
 
-### Windows 10 / 11
+专属包会自动读取本机设备配置，无需人资填写令牌或主动要求记录。每份专属包仅用于对应的一台设备，不能把同一份设备凭据分发给多台电脑；专属配置不得上传公开仓库。
 
-1. 在电脑左下角搜索并打开 **PowerShell**。
-2. 复制下面整条命令，粘贴后按回车。
-3. 看到“安装成功”后，完全退出并重新启动 Codex。
+如果从公开仓库安装，则先自动生成设备登记申请，管理员登记后才会同步。可在Codex中说：
+
+> 请从 https://github.com/sdasdasd1223/payroll-skill-suite 安装或更新工资核算技能及自动诊断组件。先检查文件摘要，按系统使用install.ps1或install.sh，备份旧版，保留历史加密记录。若没有专属配置，生成设备登记申请交由管理员处理；这一步不开始核算工资，不修改GitHub仓库。
+
+Windows备用命令：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force; $z=Join-Path $env:TEMP 'payroll-skill-suite.zip'; $d=Join-Path $env:TEMP 'payroll-skill-suite-online'; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; if(Test-Path -LiteralPath $d){Remove-Item -LiteralPath $d -Recurse -Force}; Expand-Archive -LiteralPath $z -DestinationPath $d -Force; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包中没有找到 install.ps1'}; & $i.FullName
+Set-ExecutionPolicy -Scope Process Bypass -Force; $n='payroll-skill-suite-'+[guid]::NewGuid().ToString('N'); $z=Join-Path $env:TEMP ($n+'.zip'); $d=Join-Path $env:TEMP $n; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; Expand-Archive -LiteralPath $z -DestinationPath $d; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包没有安装入口'}; & $i.FullName
 ```
 
-以后更新到最新版时，重新运行同一条命令即可。安装程序会先把电脑上的旧 Skill 备份到 `.codex\skill-backups`，再安装新版本。
+macOS下载完整仓库后执行 `bash install.sh`。需要Python 3.10以上、Git与OpenSSH；加密库缺失时安装程序尝试配置。实际工资表核算还需要原教程中的表格库及可用办公应用。macOS启动项须以真实环境测试为准。
 
-### macOS
+安装程序先验证完整性与设备签名，再备份和安装；失败时尝试回滚程序目录，诊断数据不随升级删除。Windows凭据使用当前用户的系统保护；其他系统使用当前用户私有文件权限。重启Codex后再开始新对话。
 
-从本仓库下载或克隆完整安装包后，在“终端”进入仓库目录，执行：
+## 如何使用
 
-```bash
-bash install.sh
-```
+> 请使用payroll-operations核算YYYY年MM月工资。资料在实际资料文件夹，指定模板在实际模板目录。先盘点所属期和人员，缺项保留待核，继续能独立完成的环节。
 
-脚本会先检查安装包、备份旧版，再安装到当前用户的 `~/.codex/skills`（如果设置了 `CODEX_HOME`，则使用该位置），最后核对安装结果。无需管理员权限。不要只下载单个脚本；它需要同目录的 `skills/` 文件夹。
+人资照常核算。诊断默认在核算入口执行后自动生成；定时任务正常时每五分钟重试同步，断网时保留本机加密队列。没有执行已接入入口、记录失败或云端尚未同步的情况均不能称“完整记录”。
 
-## 安装内容
+## 管理员查看
 
-- `payroll-operations`：工资发放总流程、材料引导和人工确认节点。
-- `attendance-calculator`：月度考勤计算与异常审计。
-- `attendance-settlement`：考勤确认结果与工资结算衔接。
-- `social-insurance-fund`：多公司五险一金汇总。
+公开项目仅存程序、文档、公开测试和加密公钥。记录保存于同账号下的私有诊断仓库，离开本机前已经加密并签名。人资上传凭据只能访问诊断仓库，不包含管理员GitHub账户凭据或管理员解密密钥。
 
-## 开始使用
+只有管理员本机持有解密密钥。管理员可以让Codex“同步并查看人资核算诊断记录”，或运行本包的 `管理员查看诊断.ps1`，生成本机简体中文排查页。页面不是公开网站，不能上传公开仓库。
 
-重启 Codex 后输入：
+通用安装的登记、设备撤销、恢复密钥与实际范围见[管理员操作说明](诊断管理员操作说明.md)。默认不上传完整聊天和工资原件；如需扩展须另明确范围及验证客户端能力。
 
-> 请使用 payroll-operations，开始核算 YYYY 年 MM 月工资。月度资料在“<实际文件夹路径>”，正式模板在“<实际模板路径>”。请先盘点现有文件，告诉我当前阶段缺什么；名称或归属看不懂时直接问我。
+## 业务文档
 
-建议将同月资料尽量放在一个总文件夹，文件名标明所属月份、公司或负责人、资料类型及确认状态；已有资料不必为了使用 Skill 重新搬运或改名。Codex 会先盘点当前阶段的文件，不会一次性要求提供全部工资资料。若从后续阶段开始，直接说明当前阶段即可。
-
-## 文档
-
-- [三位人资部署与月度操作教程（当前规则）](skills/payroll-operations/references/hr-deployment-guide.md)
-- `docs/hr-payroll-tutorial.docx` 是旧版参考，使用前以当前 Skill 中的教程为准。
-- [工资核算 Skill 完整内容](工资核算Skill完整内容.md)
-- [在线安装命令](在线安装命令模板.txt)
+- [月度部署与操作教程](skills/payroll-operations/references/hr-deployment-guide.md)
+- [自动诊断记录说明](skills/payroll-operations/references/diagnostics.md)
+- [四个技能完整内容](工资核算Skill完整内容.md)
 - [发布说明](发布说明.md)
 
-## 更新纪律
-
-通用规则进入正式 Skill；员工姓名、固定金额、某个月工时和一次性例外只进入当月运行说明，避免影响以后月份。已人工确认的工资表、个税表和工资单是当月正式基准，未经明确要求不得重新计算覆盖。
+真实员工资料、核算原件、设备私有配置、加密队列、管理员私钥及解密页面均不得进入公开项目。

@@ -32,37 +32,44 @@ class EmployeeRecord:
     company: str
     name: str
     certificate_number: str = ""
-    pension_employee: Decimal = Decimal("0")
-    pension_employer: Decimal = Decimal("0")
-    unemployment_employee: Decimal = Decimal("0")
-    unemployment_employer: Decimal = Decimal("0")
-    medical_employee: Decimal = Decimal("0")
-    medical_employer_basic: Decimal = Decimal("0")
-    maternity: Decimal = Decimal("0")
-    housing_employee: Decimal = Decimal("0")
-    housing_employer: Decimal = Decimal("0")
+    pension_employee: Decimal | None = None
+    pension_employer: Decimal | None = None
+    unemployment_employee: Decimal | None = None
+    unemployment_employer: Decimal | None = None
+    medical_employee: Decimal | None = None
+    medical_employer_basic: Decimal | None = None
+    maternity: Decimal | None = None
+    housing_employee: Decimal | None = None
+    housing_employer: Decimal | None = None
     present: set[str] = field(default_factory=set)
     notes: list[str] = field(default_factory=list)
 
 
-def money(value: Decimal) -> Decimal:
+def money(value: Decimal | None) -> Decimal | None:
+    if value is None: return None
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def parse_decimal(value: object) -> Decimal:
     text = str(value or "").strip().replace(",", "").replace("，", "")
     if text in {"", "-", "--"}:
-        return Decimal("0")
+        return None
     if text.endswith("%"):
         text = text[:-1]
     try:
-        return Decimal(text)
+        value = Decimal(text)
+        return value if value.is_finite() else None
     except InvalidOperation:
-        return Decimal("0")
+        return None
+
+
+def add_known(*values):
+    return None if any(v is None for v in values) else money(sum(values, Decimal(0)))
 
 
 def display_decimal(value: Decimal) -> object:
     value = money(value)
+    if value is None: return None
     if value == value.to_integral():
         return int(value)
     return float(value)
@@ -103,7 +110,7 @@ def read_xlsx(path: Path) -> list[list[str]]:
         rid = first_sheet.attrib.get(
             "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
         )
-        target = relmap[rid]
+        target = relmap[rid].lstrip('/')
         if not target.startswith("xl/"):
             target = "xl/" + target
 
@@ -211,7 +218,9 @@ def discover_files(input_root: Path) -> dict[str, dict[str, Path]]:
             if path.suffix.lower() not in {".xlsx", ".xls"}:
                 continue
             company = company_from_path(path, insurance_type)
-            result.setdefault(company, {})[insurance_type] = path
+            if insurance_type in result.setdefault(company, {}):
+                raise ValueError(f"同公司同险种存在多个候选文件，先确认版本: {company}/{insurance_type}")
+            result[company][insurance_type] = path
     return result
 
 
@@ -247,30 +256,32 @@ def parse_social_file(
         if name in seen:
             exceptions.append([company, name, insurance_type, "duplicate_name_in_source", str(path), "同一险种源表中姓名重复"])
         seen.add(name)
-        if base == 0:
+        if base is None or base == 0:
             exceptions.append([company, name, insurance_type, "missing_base", str(path), "缴费基数为空或无法解析"])
-        if employee_amount == 0:
+        if employee_amount is None or employee_amount == 0:
             exceptions.append([company, name, insurance_type, "missing_employee_amount", str(path), "个人应缴费额为空或为 0"])
 
         record = add_record(records, company, name)
         if certificate and not record.certificate_number:
             record.certificate_number = certificate
         record.present.add(insurance_type)
+        if "广思" in company:
+            raise ValueError("广思必须使用独立标准化明细模式，禁止套普通公司费率；见 normalized_social.py")
 
         if insurance_type == "pension":
-            employer_amount = money(base * PENSION_EMPLOYER_RATE)
+            employer_amount = money(base * PENSION_EMPLOYER_RATE) if base is not None else None
             record.pension_employee = employee_amount
             record.pension_employer = employer_amount
             detail_rows["养老"].append([company, name, cert_type, certificate, wage, base, fee_rate, employee_amount, employer_amount])
         elif insurance_type == "unemployment":
-            employer_amount = money(base * UNEMPLOYMENT_EMPLOYER_RATE)
+            employer_amount = money(base * UNEMPLOYMENT_EMPLOYER_RATE) if base is not None else None
             record.unemployment_employee = employee_amount
             record.unemployment_employer = employer_amount
             detail_rows["失业"].append([company, name, cert_type, certificate, wage, base, fee_rate, employee_amount, employer_amount])
         elif insurance_type == "medical":
-            medical_basic = money(base * MEDICAL_EMPLOYER_RATE)
-            maternity = money(base * MATERNITY_RATE)
-            unit_total = money(medical_basic + maternity)
+            medical_basic = money(base * MEDICAL_EMPLOYER_RATE) if base is not None else None
+            maternity = money(base * MATERNITY_RATE) if base is not None else None
+            unit_total = add_known(medical_basic, maternity)
             record.medical_employee = employee_amount
             record.medical_employer_basic = medical_basic
             record.maternity = maternity
@@ -299,7 +310,7 @@ def parse_housing_file(
         seen.add(name)
         if "***" in certificate:
             exceptions.append([company, name, "housing_fund", "masked_certificate", str(path), "公积金证件号码被打码，只能按姓名匹配"])
-        if employer == 0 or employee == 0:
+        if employer is None or employee is None or employer == 0 or employee == 0:
             exceptions.append([company, name, "housing_fund", "missing_housing_amount", str(path), "公积金单位或个人金额为空/为 0"])
 
         record = add_record(records, company, name)
@@ -339,6 +350,13 @@ def build_records(company_files: dict[str, dict[str, Path]]) -> tuple[dict[tuple
             else:
                 parse_social_file(records, detail_rows, exceptions, insurance_type, company, path)
 
+    for issue in exceptions:
+        if issue[3] == "duplicate_name_in_source":
+            record = records.get((issue[0], issue[1]))
+            if record:
+                fields = {"pension": ("pension_employee", "pension_employer"), "unemployment": ("unemployment_employee", "unemployment_employer"), "medical": ("medical_employee", "medical_employer_basic", "maternity"), "housing_fund": ("housing_employee", "housing_employer")}
+                for field in fields[issue[2]]: setattr(record, field, None)
+                record.notes.append("同名重复待核，相关金额已留空")
     for record in records.values():
         for insurance_type in required:
             if insurance_type not in record.present:
@@ -351,9 +369,9 @@ def build_records(company_files: dict[str, dict[str, Path]]) -> tuple[dict[tuple
 def summary_rows(records: dict[tuple[str, str], EmployeeRecord]) -> list[list[object]]:
     rows: list[list[object]] = []
     for index, record in enumerate(sorted(records.values(), key=lambda r: (r.company, r.name)), start=1):
-        social_employer = money(record.pension_employer + record.unemployment_employer)
-        social_employee = money(record.pension_employee + record.unemployment_employee)
-        medical_employer = money(record.medical_employer_basic + record.maternity)
+        social_employer = add_known(record.pension_employer, record.unemployment_employer)
+        social_employee = add_known(record.pension_employee, record.unemployment_employee)
+        medical_employer = add_known(record.medical_employer_basic, record.maternity)
         rows.append([
             index,
             record.company,
@@ -382,30 +400,14 @@ def write_csv_fallback(output: Path, sheets: dict[str, list[list[object]]]) -> N
 
 
 def write_xlsx_with_excel(output: Path, sheets: dict[str, list[list[object]]]) -> None:
-    try:
-        import win32com.client  # type: ignore
-    except Exception as exc:
-        raise RuntimeError("写入 .xlsx 需要 Windows Excel；可改用 --csv-output-dir 输出 CSV") from exc
-
+    """Compatibility name; intermediate XLSX writing works on Windows/macOS."""
+    from openpyxl import Workbook
     output.parent.mkdir(parents=True, exist_ok=True)
-    excel = win32com.client.DispatchEx("Excel.Application")
-    excel.Visible = False
-    excel.DisplayAlerts = False
-    try:
-        workbook = excel.Workbooks.Add()
-        while workbook.Worksheets.Count < len(sheets):
-            workbook.Worksheets.Add(After=workbook.Worksheets(workbook.Worksheets.Count))
-        for index, (sheet_name, rows) in enumerate(sheets.items(), start=1):
-            sheet = workbook.Worksheets(index)
-            sheet.Name = sheet_name[:31]
-            for row_index, row in enumerate(rows, start=1):
-                for col_index, value in enumerate(row, start=1):
-                    sheet.Cells(row_index, col_index).Value = value
-            sheet.Columns.AutoFit()
-        workbook.SaveAs(str(output.resolve()), FileFormat=51)
-        workbook.Close(False)
-    finally:
-        excel.Quit()
+    book = Workbook(); book.remove(book.active)
+    for name, rows in sheets.items():
+        ws = book.create_sheet(name[:31])
+        for row in rows: ws.append([display_decimal(v) if isinstance(v, Decimal) else v for v in row])
+    book.save(output)
 
 
 def make_sheets(
@@ -437,6 +439,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--housing-fund", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--csv-output-dir", type=Path, help="Fallback CSV output folder when Excel automation is unavailable.")
+    parser.add_argument("--source-periods", type=Path, help="JSON mapping each resolved source path to verified source month.")
     return parser.parse_args()
 
 
@@ -460,7 +463,17 @@ def main() -> int:
     if not company_files:
         raise SystemExit("No source files discovered.")
 
+    source_paths = [p.resolve() for files in company_files.values() for p in files.values()]
+    if args.output.resolve() in source_paths:
+        raise SystemExit("输出不得覆盖源文件")
+    if args.output.exists():raise SystemExit("输出已存在，请另存新版本")
+
     records, detail_rows, exceptions = build_records(company_files)
+    import json
+    periods = json.loads(args.source_periods.read_text(encoding='utf-8-sig')) if args.source_periods else {}
+    for p in source_paths:
+        if periods.get(str(p)) != args.month:
+            exceptions.append(['', '', '', 'source_period_unverified', str(p), '费用所属期未与目标月核准，不能凭文件名或--month认定'])
     sheets = make_sheets(records, detail_rows, exceptions)
     try:
         write_xlsx_with_excel(args.output, sheets)
@@ -469,8 +482,9 @@ def main() -> int:
             raise
         write_csv_fallback(args.csv_output_dir, sheets)
     print(f"Generated {args.output} for {args.month}. Employees: {len(records)}. Exceptions: {len(exceptions)}.")
-    return 0
+    return 2 if exceptions else 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from diagnostics_bridge import observed
+    raise SystemExit(observed(main,'insurance_merge'))

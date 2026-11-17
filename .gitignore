@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.sqlite3*
+device-profile.private.json
+*admin-key*
+*client.secure*
+*recovery*.pem
+private-device-profiles/

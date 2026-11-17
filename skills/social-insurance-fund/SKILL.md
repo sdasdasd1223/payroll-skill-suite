@@ -26,7 +26,7 @@ If the user has already installed the local social-insurance client, prefer down
 
 Known local environment:
 
-- Client launcher: `E:\Program Files (x86)\EPPortal_Soft\EPPortal_SB\EPEvenue_SB.exe`
+- 客户端启动位置：在使用者本机确认，记入技能目录外的私有配置，不将某台电脑路径作为三位人资共同默认值。
 - Company accounts are expected to have been pre-added by the user.
 - Login password must be requested from the user in the current session and must not be hardcoded into the skill.
 
@@ -171,3 +171,15 @@ Keep raw detail sheets in the output so HR can audit how each summary value was 
 - 每次完成一个可交付阶段后，主动接下一步，而不是等待用户重新发起。
 - 用一句话总结当前进度，再给出一个明确的下一步问题或材料清单。
 - 若当前阶段已经结束但后续流程还未开始，优先询问用户要继续哪一步：继续补资料、做复核、还是进入下一阶段计算。
+
+## 执行约束与程序选择
+
+普通分险种标准表用`build_social_insurance_fund.py`生成中间表；广思或公司特殊费率/实际单位金额须用`scripts/normalized_social.py`的标准化明细模式，禁止套普通默认费率。程序输入的每行须保留公司、姓名、证件、month、insurance、employee、employer、source和source_row。对应金额取源表实际“应缴费额”，不以他人费率推算；无法判断缴纳月/费用所属期先问。
+
+`normalized_social.py --input rows.json --month YYYY-MM --output social-audit.json`支持`pension,unemployment,medical,maternity,injury,housing_fund`。额外险种保留追溯不擅自并入。`read_guangsi_xlsx`按多级表头读取，不能固定列号；公积金仍须独立来源。缺项、无法解析和重复相关金额为null，主表不得输出为0或完整合计。重复不按先后选金额；有异常时退出2，只交待补版。
+
+原PDF或旧xls先可靠转标准化，源表日期必须核实；`--month`只是标签不能证明源文件归属。xlsx中间输出跨系统使用openpyxl；旧xls的Excel自动化只适用于安装Excel的Windows。正式输出另按用户确认模板填充，不能把中间表当模板。共享并表只有一份人工确认版本，按公司+可靠身份核对后交工资阶段；缺项状态必须一同交接。
+
+## 指定模板及交接
+
+标准化中间表的明细与异常必须真实交付。正式汇总另按`payroll-operations/references/template-guard.md`登记用户指定模板，复制后填写，核验字体、边框、数字格式、行列尺寸、合并及打印。Excel原生操作只打开输出隔离副本，禁止直接打开输入原件。用`crossstage-1`连接实际各险种原件、费用所属期、个人/单位金额及正式汇总，逐人传递工资与个税所用金额和待核状态；不能仅凭命令月份、文件名或已知小计判断全部已核。原件有明确数值0须保留；来源缺失的null不得改0。

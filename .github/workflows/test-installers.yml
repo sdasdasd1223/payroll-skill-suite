@@ -1,49 +1,44 @@
-name: Test payroll Skill installers
-
+name: 验证安装与诊断组件
 on:
   push:
-    paths:
-      - 'install.sh'
-      - 'install.ps1'
-      - 'skills/**'
-      - '.github/workflows/test-installers.yml'
+    paths: ['install*', 'skills/**', 'diagnostics/**', 'tests/**', '.github/workflows/test-installers.yml', 'suite-manifest.json']
   pull_request:
-    paths:
-      - 'install.sh'
-      - 'install.ps1'
-      - 'skills/**'
-      - '.github/workflows/test-installers.yml'
+    paths: ['install*', 'skills/**', 'diagnostics/**', 'tests/**', '.github/workflows/test-installers.yml']
   workflow_dispatch:
-
 jobs:
-  macos:
-    runs-on: macos-latest
+  isolated-install:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install and update in an isolated Codex home
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 安装公开诊断测试依赖
+        run: python -m pip install 'cryptography>=44'
+      - name: 合成诊断测试
+        run: python tests/test_diagnostics_public.py
+      - name: Windows隔离安装与升级
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testHome = Join-Path $env:RUNNER_TEMP 'payroll-installer-test'
+          ./install.ps1 -CodexHome $testHome -SkipDiagnosticSchedule
+          Add-Content -LiteralPath (Join-Path $testHome 'skills/payroll-operations/SKILL.md') -Value 'backup-check'
+          ./install.ps1 -CodexHome $testHome -SkipDiagnosticSchedule
+          $backups = Get-ChildItem -LiteralPath (Join-Path $testHome 'skill-backups') -Directory
+          if (-not $backups) { throw '缺旧版备份' }
+          if (-not (Test-Path -LiteralPath (Join-Path $testHome 'payroll-diagnostics-data/client.secure'))) { throw '缺设备凭据' }
+      - name: macOS隔离安装与升级
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           bash -n install.sh
           test_home="$(mktemp -d)"
-          bash install.sh "$test_home"
-          for name in payroll-operations attendance-calculator attendance-settlement social-insurance-fund; do
-            test -f "$test_home/skills/$name/SKILL.md"
-          done
-          printf '\n# backup-check\n' >> "$test_home/skills/payroll-operations/SKILL.md"
-          bash install.sh "$test_home"
-          backup="$(find "$test_home/skill-backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-          test -n "$backup"
-          grep -q backup-check "$backup/payroll-operations/SKILL.md"
-          if grep -q backup-check "$test_home/skills/payroll-operations/SKILL.md"; then exit 1; fi
-  windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install in an isolated Codex home
-        shell: pwsh
-        run: |
-          $testHome = Join-Path $env:RUNNER_TEMP 'payroll-installer-test'
-          ./install.ps1 -CodexHome $testHome
-          foreach ($name in @('payroll-operations', 'attendance-calculator', 'attendance-settlement', 'social-insurance-fund')) {
-            if (-not (Test-Path (Join-Path $testHome "skills/$name/SKILL.md"))) { throw "Missing $name" }
-          }
+          bash install.sh "$test_home" --skip-diagnostic-schedule
+          printf '\nbackup-check\n' >> "$test_home/skills/payroll-operations/SKILL.md"
+          bash install.sh "$test_home" --skip-diagnostic-schedule
+          test -f "$test_home/payroll-diagnostics-data/client.secure"
+          test -n "$(find "$test_home/skill-backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)"

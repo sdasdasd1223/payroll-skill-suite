@@ -14,6 +14,7 @@ Required columns:
 - `department`
 - `name`
 - `attendance_type`: `需要打卡` or `不需要打卡`.
+- 原始导出中的`无需打卡`（含繁体`無需打卡`）与`不需要打卡`同义，先用`scripts/process_attendance.py`的`normalize_attendance_type`逐条标准化，再判断本人本月类型。不能只按一个原始标签完全相等判断，也不能把没有原始记录、未知标签或混合类型默认归入不需要打卡；这些保留待核及原值。
 - `late_minutes`: monthly late minutes.
 - `missed_punch_count`: monthly missed-punch count.
 - `personal_leave_hours`: current-month personal leave hours from attendance.
@@ -77,6 +78,7 @@ Required columns:
 - `name`
 - `overtime_balance_hours`: cumulative overtime balance.
 - `prior_leave_balance_hours`: prior-month leave balance used for the current cumulative personal-leave field.
+- 已确认`不需要打卡`者无需累计事假，该字段不适用，可不提供；不能将此豁免用于原始记录缺失但仍需打卡或类型未知者。
 
 Do not automatically offset current-month overtime against cumulative personal leave. If a negative overtime conversion is present in a source workflow, keep it visible in the exception or calculation notes.
 
@@ -150,6 +152,8 @@ For years other than 2026, keep the same business meaning and update the year te
 
 ## Mapping Guidance
 
+读取飞书导出xlsx时，不能只凭工作表声明范围或`max_row`判定空表。一些导出把dimension标为A1但实际有多行。只读读取须先重置范围，再按实际XML行读取；记录声明范围、实际读取行列数及表头，并核对解析覆盖。不能为修复读取而覆盖原始文件。
+
 When using raw Feishu exports:
 
 - Inspect the header row first.
@@ -169,4 +173,8 @@ If a source file contains one row per attendance event instead of one row per em
 - Sum early-departure count and minutes by employee.
 - Sum leave hours or days by employee and leave type, rounding each natural day upward and capping each day at `8` hours.
 - Build detail strings by sorting events by date ascending or by Feishu export order if HR prefers.
-- Sum daily `应出勤天数` by employee and multiply by `8`; use `应出勤时长(分钟)` only as the fallback.
+- required_work_hours必须来自本月已确认统一计薪日历；个人日明细只核对差异，不得替代该分母。
+
+## 新增执行字段
+
+`reward_status,reward_amount,reward_reason,sick_leave_detail,annual_leave_detail`见奖励规则。上月资料提供`history_month`；跨月不连续须追溯余额。所有历史累计字段缺失留空待核，不等同0。脚本输出是中间表，正式列与样式以用户确认模板为准；附加诊断字段只能放核验输出。

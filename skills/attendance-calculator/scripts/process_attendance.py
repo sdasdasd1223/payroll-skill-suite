@@ -47,6 +47,12 @@ OUTPUT_COLUMNS_TEMPLATE = [
 ]
 
 
+def normalize_attendance_type(value: Any) -> str:
+    """Normalize observed source labels; missing/unknown is never a no-punch exemption."""
+    text = str(value or "").strip()
+    return {"无需打卡": "不需要打卡", "無需打卡": "不需要打卡"}.get(text, text)
+
+
 def read_table(path: Optional[str]) -> List[Dict[str, Any]]:
     if not path:
         return []
@@ -81,7 +87,11 @@ def read_xlsx(path: Path) -> List[Dict[str, Any]]:
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     sheet = workbook.active
+    # Some Feishu exports declare A1 while retaining thousands of actual XML rows.
+    # Read-only mode otherwise trusts that declaration and silently drops the data.
+    sheet.reset_dimensions()
     rows = list(sheet.iter_rows(values_only=True))
+    workbook.close()
     if not rows:
         return []
     headers = [str(value).strip() if value is not None else "" for value in rows[0]]
@@ -91,6 +101,13 @@ def read_xlsx(path: Path) -> List[Dict[str, Any]]:
         if any(str(value).strip() for value in row.values() if value is not None):
             records.append(normalize_row(row))
     return records
+
+
+def present(row, key):
+    value = row.get(key)
+    if value is None or str(value).strip() == "": return False
+    try: return math.isfinite(float(value))
+    except (TypeError, ValueError): return False
 
 
 def normalize_row(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,7 +122,7 @@ def write_table(path: str, rows: List[Dict[str, Any]], columns: List[str]) -> No
         with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=columns)
             writer.writeheader()
-            writer.writerows(rows)
+            writer.writerows({column: row.get(column, "") for column in columns} for row in rows)
         return
     if suffix in {".xlsx", ".xlsm"}:
         write_xlsx(output_path, rows, columns)
@@ -141,9 +158,14 @@ def write_xlsx(path: Path, rows: List[Dict[str, Any]], columns: List[str]) -> No
         late_deduction = sheet.cell(row_index, header_index["迟到扣款情况"])
         missed_deduction = sheet.cell(row_index, header_index["漏打卡扣款情况"])
         total_deduction = sheet.cell(row_index, header_index["考勤扣款情况（合计）"])
-        late_deduction.value = f'=IF({rank}="组员",{late}*-3,IF({rank}="管理层",{late}*-5,0))'
-        missed_deduction.value = f'=IF({missed}="",0,MAX(0,{missed}-2)*-50)'
-        total_deduction.value = f"=SUM({late_deduction.coordinate}:{missed_deduction.coordinate})"
+        deduction_rank = rows[row_index - 2].get('_deduction_rank')
+        rate = {'组员': -3, '管理层': -5}.get(deduction_rank)
+        if rows[row_index - 2].get('迟到扣款情况') == '' or rate is None:
+            late_deduction.value = ''
+        else:
+            late_deduction.value = f'=IF({late}="","",{late}*{rate})'
+        missed_deduction.value = '' if rows[row_index - 2].get('漏打卡扣款情况') == '' else f'=IF({missed}="","",MAX(0,{missed}-2)*-50)'
+        total_deduction.value = '' if rows[row_index - 2].get('考勤扣款情况（合计）') == '' else f'=IF(OR({late_deduction.coordinate}="",{missed_deduction.coordinate}=""),"",SUM({late_deduction.coordinate}:{missed_deduction.coordinate}))'
         sheet.cell(row_index, header_index["UserID"]).number_format = "@"
     for index, column in enumerate(columns, start=1):
         width = min(max(len(column) + 4, 12), 32)
@@ -161,8 +183,12 @@ def parse_number(value: Any, default: float = 0.0) -> float:
     text = str(value).strip().replace(",", "")
     if not text:
         return default
-    match = re.search(r"-?\d+(?:\.\d+)?", text)
-    return float(match.group(0)) if match else default
+    try:
+        parsed = float(text)
+        if not math.isfinite(parsed): raise ValueError("非有限数字")
+        return parsed
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"标准化数字无法解析:{text}") from exc
 
 
 def parse_int(value: Any, default: int = 0) -> int:
@@ -244,7 +270,7 @@ def annual_leave_entitlement(hire_date: Optional[date], year: int, month_start: 
         return 5.0
     if jan1 >= one_year:
         return 3.0
-    if one_year.year == year and (month_start is None or month_start >= one_year):
+    if one_year.year == year and (month_start is None or month_start.month >= one_year.month):
         prorated = (12 - one_year.month) / 12 * 3
         return ceil_to_half(prorated)
     return 0.0
@@ -253,7 +279,7 @@ def annual_leave_entitlement(hire_date: Optional[date], year: int, month_start: 
 def split_birthdates(value: Any) -> List[date]:
     if value is None:
         return []
-    parts = re.split(r"[,，;；/\n]+", str(value))
+    parts = re.split(r"[,，;；\n]+", str(value))
     dates = [parse_date(part.strip()) for part in parts if part.strip()]
     return [item for item in dates if item]
 
@@ -306,6 +332,7 @@ def childcare_note(
 
 
 def clean_number(value: float) -> Any:
+    if value == "" or value is None: return ""
     if abs(value - round(value)) < 0.00001:
         return int(round(value))
     return float(f"{value:.2f}")
@@ -316,8 +343,8 @@ def detail_text(prefix: str, value: Any) -> str:
     return f"{prefix}：{text}" if text else ""
 
 
-def join_attendance_detail(late_detail: Any, personal_leave_detail: Any) -> str:
-    parts = [detail_text("迟到", late_detail), detail_text("事假", personal_leave_detail)]
+def join_attendance_detail(late_detail: Any, personal_leave_detail: Any, sick_detail: Any = "", annual_detail: Any = "") -> str:
+    parts = [detail_text("迟到", late_detail), detail_text("事假", personal_leave_detail), detail_text("病假", sick_detail), detail_text("年假", annual_detail)]
     return "\n".join(part for part in parts if part)
 
 
@@ -334,6 +361,21 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
     annual_remaining_column = next(column for column in columns if "年年假（天） 在职结余时间" in column)
 
     attendance_rows = read_table(args.attendance)
+    if not attendance_rows:
+        raise ValueError("本月标准化考勤无员工行，不能将空表认定核算完成")
+    if args.paid_days <= 0 or args.hours_per_day <= 0:
+        raise ValueError("计薪日和每日工时须大于0")
+    normalized_keys = [key_for(r) for r in attendance_rows]
+    if len(normalized_keys) != len(set(normalized_keys)):
+        raise ValueError("标准化考勤一人多行，须先核对去重或按日汇总")
+    for record in attendance_rows:
+        if not record.get("name"):
+            raise ValueError("标准化考勤缺姓名")
+        for field in ("late_minutes", "missed_punch_count", "personal_leave_hours", "sick_leave_hours", "annual_leave_days", "childcare_leave_days"):
+            if present(record, field) and parse_number(record[field]) < 0:
+                raise ValueError(f"{field}不能为负值，负结余应放结余字段")
+        if present(record, "required_work_hours") and parse_number(record["required_work_hours"]) <= 0:
+            raise ValueError("本月统一计薪小时数须大于0")
     roster_index, roster_counts = make_index(read_table(args.roster))
     history_index, history_counts = make_index(read_table(args.history))
     overtime_index, overtime_counts = make_index(read_table(args.overtime))
@@ -350,8 +392,32 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
             exceptions.append("员工标识重复，需复核")
         if not roster:
             exceptions.append("缺少花名册信息")
+        if roster_counts.get(key, 0) > 1: roster = {}
+        if history_counts.get(key, 0) > 1: history = {}
+        if overtime_counts.get(key, 0) > 1: overtime = {}
 
-        attendance_type = str(attendance.get("attendance_type", "") or "").strip()
+        attendance_type = normalize_attendance_type(attendance.get("attendance_type"))
+        if attendance_type not in ("需要打卡", "不需要打卡"):
+            exceptions.append("考勤类型不明，结果待核")
+        for field in ("late_minutes", "missed_punch_count", "personal_leave_hours", "sick_leave_hours", "annual_leave_days", "childcare_leave_days"):
+            if not present(attendance, field): exceptions.append(f"缺少标准化输入字段{field}，结果待核")
+        for source, fields, label in [(history, ("prior_sick_leave_hours_year", "prior_annual_leave_remaining_days", "prior_annual_leave_entitlement_days"), "上月确认资料"), (overtime, ("overtime_balance_hours", "prior_leave_balance_hours"), "加班结余资料")]:
+            for field in fields:
+                if field == "prior_leave_balance_hours" and attendance_type == "不需要打卡":
+                    continue  # 明确不适用；原始资料缺失但类型未知者仍不可豁免。
+                if not present(source, field): exceptions.append(f"缺少{label}:{field}，不得默认零或完整额度")
+        reward_status = attendance.get("reward_status", "")
+        reward_amount = attendance.get("reward_amount", "")
+        if reward_status == "confirmed_zero": reward_amount = 0
+        elif reward_status == "not_applicable" and attendance.get("reward_reason"): reward_amount = ""
+        elif reward_status != "calculated" or not present(attendance, "reward_amount"):
+            reward_amount = ""
+            exceptions.append("奖励金未完成核验或缺核准金额，待核")
+        if len(split_birthdates(roster.get("child_birthdates"))) > 1:
+            exceptions.append("多子女育儿假须按子女逐笔核对；本程序不合并推定额度")
+        expected_prior = (month.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        if history.get("history_month") and history["history_month"] != expected_prior:
+            exceptions.append("上月资料月份不连续，累计余额待核")
         needs_punch = attendance_type == "需要打卡"
 
         job_level = str(roster.get("job_level", "") or "").strip()
@@ -366,24 +432,26 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
                 late_deduction = late_minutes * -5
             else:
                 exceptions.append("缺少或无法识别职级，迟到扣款未计算")
+        if needs_punch and not present(attendance, "late_minutes"): late_deduction = ""
         missed_deduction = max(0, missed_punch_count - 2) * -50 if needs_punch else 0
-        total_deduction = (late_deduction if isinstance(late_deduction, int) else 0) + missed_deduction
+        if needs_punch and not present(attendance, "missed_punch_count"): missed_deduction = ""
+        total_deduction = late_deduction + missed_deduction if isinstance(late_deduction, (int, float)) and isinstance(missed_deduction, (int, float)) else ""
 
-        overtime_balance = parse_number(overtime.get("overtime_balance_hours"))
+        overtime_balance = parse_number(overtime.get("overtime_balance_hours")) if present(overtime, "overtime_balance_hours") else ""
         monthly_personal_leave = parse_number(attendance.get("personal_leave_hours")) if needs_punch else 0.0
-        prior_leave_balance = parse_number(overtime.get("prior_leave_balance_hours"), parse_number(history.get("prior_personal_leave_hours")))
-        cumulative_personal_leave = prior_leave_balance + monthly_personal_leave
+        prior_leave_balance = parse_number(overtime.get("prior_leave_balance_hours")) if present(overtime, "prior_leave_balance_hours") else ""
+        cumulative_personal_leave = prior_leave_balance + monthly_personal_leave if prior_leave_balance != "" else ""
 
         monthly_sick_leave = parse_number(attendance.get("sick_leave_hours")) if needs_punch else 0.0
-        prior_sick_leave = parse_number(history.get("prior_sick_leave_hours_year"))
-        ytd_sick_leave = prior_sick_leave + monthly_sick_leave
+        prior_sick_leave = parse_number(history.get("prior_sick_leave_hours_year")) if present(history, "prior_sick_leave_hours_year") else ""
+        ytd_sick_leave = prior_sick_leave + monthly_sick_leave if prior_sick_leave != "" else ""
 
         hire_date = parse_date(roster.get("hire_date"))
         annual_entitlement = annual_leave_entitlement(hire_date, year, month)
         annual_used = parse_number(attendance.get("annual_leave_days"))
-        prior_annual_remaining = parse_number(history.get("prior_annual_leave_remaining_days"), annual_entitlement)
-        prior_annual_entitlement = parse_number(history.get("prior_annual_leave_entitlement_days"), annual_entitlement)
-        annual_remaining = max(0.0, prior_annual_remaining + max(0.0, annual_entitlement - prior_annual_entitlement) - annual_used)
+        prior_annual_remaining = parse_number(history.get("prior_annual_leave_remaining_days")) if present(history, "prior_annual_leave_remaining_days") else ""
+        prior_annual_entitlement = parse_number(history.get("prior_annual_leave_entitlement_days")) if present(history, "prior_annual_leave_entitlement_days") else ""
+        annual_remaining = max(0.0, prior_annual_remaining + max(0.0, annual_entitlement - prior_annual_entitlement) - annual_used) if prior_annual_remaining != "" and prior_annual_entitlement != "" else ""
 
         childcare_days = parse_number(attendance.get("childcare_leave_days"))
         birthdates = split_birthdates(roster.get("child_birthdates"))
@@ -397,9 +465,14 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
 
         department = str(attendance.get("department", "") or roster.get("department", "") or "").strip()
         missed_detail = detail_text("缺卡", attendance.get("missed_punch_detail"))
-        attendance_detail = join_attendance_detail(attendance.get("late_detail"), attendance.get("personal_leave_detail"))
+        attendance_detail = join_attendance_detail(attendance.get("late_detail"), attendance.get("personal_leave_detail"), attendance.get("sick_leave_detail"), attendance.get("annual_leave_detail"))
         user_id = str(attendance.get("UserID", "") or attendance.get("user_id", "") or roster.get("UserID", "") or roster.get("user_id", "") or history.get("UserID", "") or "").strip()
+        if not re.fullmatch(r"[0-9]{19}", user_id):
+            exceptions.append("UserID缺失或不是完整19位文本标识，禁止猜填")
+        if present(attendance, "required_work_hours") and parse_number(attendance["required_work_hours"]) != args.paid_days * args.hours_per_day:
+            exceptions.append("个人输入工时与统一计薪日历不一致，待核")
         row = {
+            "_deduction_rank": job_level,
             "UserID": user_id,
             "所属公司": str(roster.get("company", "") or roster.get("所属公司", "") or "").strip(),
             "一级部门": str(roster.get("level1_department", "") or roster.get("1级部门", "") or "").strip(),
@@ -417,7 +490,7 @@ def build_summary(args: argparse.Namespace) -> Tuple[List[Dict[str, Any]], List[
             "累计加班结余（小时）": clean_number(overtime_balance),
             "病假（小时）": clean_number(monthly_sick_leave) if needs_punch else "",
             "育儿假": childcare,
-            "奖励金": "",
+            "奖励金": reward_amount,
             "本月应上班总小时数（h）": clean_number(parse_number(attendance.get("required_work_hours"), args.paid_days * args.hours_per_day)),
             "入职时间": format_date(hire_date),
             "离职时间": format_date(parse_date(roster.get("resignation_date"))),
@@ -452,10 +525,25 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    sources = [getattr(args, k, None) for k in ("attendance", "roster", "history", "overtime")]
+    output_path = Path(args.output).resolve()
+    if any(p and Path(p).resolve() == output_path for p in sources):
+        raise SystemExit("输出不得覆盖任何输入源文件")
+    if output_path.exists():
+        raise SystemExit("输出文件已存在，请另存新版本，不覆盖确认结果")
     rows, columns = build_summary(args)
     write_table(args.output, rows, columns)
-    print(f"Wrote {len(rows)} rows to {args.output}")
+    import json
+    audit = {"month": args.month, "rows": len(rows), "kind": "intermediate_draft", "pending": [{"name": r["姓名"], "detail": r["异常提示"]} for r in rows if r["异常提示"]]}
+    Path(str(args.output) + ".audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Wrote {len(rows)} intermediate draft rows to {args.output}; pending: {len(audit['pending'])}")
+    if audit["pending"]: raise SystemExit(2)
 
 
 if __name__ == "__main__":
-    main()
+    from diagnostics_bridge import observed
+    try: observed(main,'process_attendance')
+    except (ValueError, FileNotFoundError) as exc:
+        import sys
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2)

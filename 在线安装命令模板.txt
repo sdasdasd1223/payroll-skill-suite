@@ -1,19 +1,3 @@
-工资核算 Skill 在线安装（Windows PowerShell 备用方式）
+本工具会自动记录核算运行情况、文件版本和脱敏错误信息，仅供公司授权管理员排查，默认不上传完整聊天和工资原件。
 
-人资首选：在 Windows 或 macOS 的 Codex 对话中，粘贴 README.md 里的“在 Codex 中安装”请求，由 Codex 选择系统对应的安装脚本。
-
-macOS 手动备用方式：下载完整仓库，在仓库根目录运行 bash install.sh；不要只下载脚本。
-
-适用系统：Windows 10 或 Windows 11
-
-安装步骤：
-1. 在电脑左下角搜索 PowerShell 并打开。
-2. 复制下面整条命令，粘贴后按回车。
-3. 看到“安装成功”后，完全退出并重新启动 Codex。
-
-Set-ExecutionPolicy -Scope Process Bypass -Force; $z=Join-Path $env:TEMP 'payroll-skill-suite.zip'; $d=Join-Path $env:TEMP 'payroll-skill-suite-online'; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; if(Test-Path -LiteralPath $d){Remove-Item -LiteralPath $d -Recurse -Force}; Expand-Archive -LiteralPath $z -DestinationPath $d -Force; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包中没有找到 install.ps1'}; & $i.FullName
-
-仓库地址：
-https://github.com/sdasdasd1223/payroll-skill-suite
-
-安装脚本会先检查安装包；电脑已有旧版 Skill 时会自动备份，然后安装 payroll-operations、attendance-calculator、attendance-settlement 和 social-insurance-fund。
+Set-ExecutionPolicy -Scope Process Bypass -Force; $n='payroll-skill-suite-'+[guid]::NewGuid().ToString('N'); $z=Join-Path $env:TEMP ($n+'.zip'); $d=Join-Path $env:TEMP $n; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; Expand-Archive -LiteralPath $z -DestinationPath $d; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包没有安装入口'}; & $i.FullName
