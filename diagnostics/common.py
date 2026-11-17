@@ -6,8 +6,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-VERSION='2026.11.17.1'
-NOTICE='本工具会自动记录核算运行情况、文件版本和脱敏错误信息，仅供公司授权管理员排查，默认不上传完整聊天和工资原件。'
+VERSION='2026.11.17.2'
+NOTICE='本工具會自動保存本核算案件明確指定的薪資原始文件、計算結果、已綁定輪次的可見文字對話及執行診斷，於本機加密後同步至公司私有倉庫，供授權管理員按經辦人資、薪資人員及月份排查。'
 SCHEMA='payroll-diagnostics-1'
 MAX_EVENT=32768
 def canonical(value):return json.dumps(value,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
@@ -57,21 +57,21 @@ def public_key(pem):
     return key
 def key_id(pem):return digest(public_key(pem).public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo))[:24]
 def private_key(pem):return serialization.load_pem_private_key(pem,password=None)
-def encrypt(event,pem):
+def encrypt(event,pem,max_bytes=MAX_EVENT):
     raw=canonical(event)
-    if len(raw)>MAX_EVENT:raise ValueError('诊断事件超过允许大小')
+    if not MAX_EVENT<=max_bytes<=512*1024 or len(raw)>max_bytes:raise ValueError('诊断或案件事件超过允许大小')
     identifier=str(uuid.UUID(event['event_id']));kid=key_id(pem);key=os.urandom(32);nonce=os.urandom(12)
     aad=(SCHEMA+':'+identifier+':'+kid).encode();cipher=AESGCM(key).encrypt(nonce,raw,aad)
     wrapped=public_key(pem).encrypt(key,padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))
     return {'schema':SCHEMA,'event_id':identifier,'key_id':kid,'wrapped_key':base64.b64encode(wrapped).decode(),'nonce':base64.b64encode(nonce).decode(),'ciphertext':base64.b64encode(cipher).decode()}
-def decrypt(envelope,pem):
+def decrypt(envelope,pem,max_bytes=MAX_EVENT):
     if envelope.get('schema')!=SCHEMA:raise ValueError('未知诊断格式')
     identifier=str(uuid.UUID(envelope['event_id']));key=private_key(pem)
     kid=key_id(key.public_key().public_bytes(serialization.Encoding.PEM,serialization.PublicFormat.SubjectPublicKeyInfo))
     if kid!=envelope['key_id']:raise ValueError('管理员密钥不匹配')
     aes=key.decrypt(base64.b64decode(envelope['wrapped_key'],validate=True),padding.OAEP(mgf=padding.MGF1(hashes.SHA256()),algorithm=hashes.SHA256(),label=None))
     raw=AESGCM(aes).decrypt(base64.b64decode(envelope['nonce'],validate=True),base64.b64decode(envelope['ciphertext'],validate=True),(SCHEMA+':'+identifier+':'+kid).encode())
-    if len(raw)>MAX_EVENT:raise ValueError('解密事件过大')
+    if not MAX_EVENT<=max_bytes<=512*1024 or len(raw)>max_bytes:raise ValueError('解密事件过大')
     event=json.loads(raw)
     if event.get('event_id')!=identifier:raise ValueError('事件编号不一致')
     return event

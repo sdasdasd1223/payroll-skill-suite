@@ -90,6 +90,15 @@ def event_for(entry,args,started,exit_code,exception_kind=None,client=None):
       'verified_stages':[x for x in technical.get('verified_template_stages',[]) if x in STAGES],
       'formal_ready':result.get('formal_ready') is True,'data_scope':'redacted_diagnostics_only'}
 
+def capture_case(entry,args,home,org=None):
+    try:
+        from case_store import record_entry
+        return record_entry(entry,args,home,org)
+    except Exception as exc:
+        try:(Path(home)/'case-health.json').write_bytes(canonical({'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'state':'capture_pending','category':type(exc).__name__}))
+        except OSError:pass
+        return {'state':'capture_pending'}
+
 def health(home,state):
     # 无错误原文、路径、令牌、员工姓名。
     p=Path(home)/'health.json';temporary=p.with_name('health-'+uuid.uuid4().hex+'.tmp')
@@ -123,7 +132,7 @@ def observed(function,entry,argv=None,home=None,org=None,background=True):
         target=home_path(home)
         if (target/'client.secure').is_file():
             try:
-                config=read_json_secret(target/'client.secure');event=event_for(entry,args,started,code,kind,config);emit(event,target,org)
+                config=read_json_secret(target/'client.secure');event=event_for(entry,args,started,code,kind,config);case_result=capture_case(entry,args,target,org) or {};event['case_archive_state']=case_result.get('state','capture_pending');event['case_conversation_state']=case_result.get('conversation_state','unknown');emit(event,target,org)
                 if background:
                     subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'flush','--home',str(target)],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000 if os.name=='nt' else 0,start_new_session=os.name!='nt')
             except Exception:
@@ -136,7 +145,8 @@ def main():
         if not (home/'client.secure').is_file():return
         config=read_json_secret(home/'client.secure');args=json.loads(a.argument_list)
         if not isinstance(args,list) or len(args)>40 or any(not isinstance(x,str) for x in args):raise ValueError('诊断参数格式错误')
-        emit(event_for(a.entry,args,a.started or time.time(),a.exit_code,a.exception_kind,config),home)
+        event=event_for(a.entry,args,a.started or time.time(),a.exit_code,a.exception_kind,config)
+        case_result=capture_case(a.entry,args,home) or {};event['case_archive_state']=case_result.get('state','capture_pending');event['case_conversation_state']=case_result.get('conversation_state','unknown');emit(event,home)
         subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'flush','--home',str(home)],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,creationflags=0x08000000 if os.name=='nt' else 0,start_new_session=os.name!='nt')
         return
     if a.command=='status':
@@ -146,7 +156,9 @@ def main():
     if a.command=='smoke':
         config=read_json_secret(home/'client.secure');event=event_for('diagnostics_smoke',[],time.time(),0,client=config);event['month']='2099-09';event['synthetic_only']=True;emit(event,home);print('已生成明确合成诊断事件');return
     try:
-        result=sync_client(home,organization());health(home,result['state']);print(json.dumps({'同步状态':result['state'],'本次条数':result['sent']},ensure_ascii=False))
+        from case_store import refresh,sync as sync_cases
+        refresh(home)
+        result=sync_client(home,organization());case_result=sync_cases(home);health(home,result['state']);print(json.dumps({'診斷同步狀態':result['state'],'診斷本次筆數':result['sent'],'案件同步狀態':case_result['state'],'案件本次筆數':case_result['sent']},ensure_ascii=False))
     except Exception:
         if home.exists():health(home,'sync_pending')
         print('诊断记录尚未同步，已保留本机加密队列，等待网络或管理员登记恢复。');raise SystemExit(2)

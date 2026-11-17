@@ -17,9 +17,11 @@ jobs:
         with:
           python-version: '3.12'
       - name: 安装公开诊断测试依赖
-        run: python -m pip install 'cryptography>=44'
+        run: python -m pip install 'cryptography>=44' openpyxl
       - name: 合成诊断测试
         run: python tests/test_diagnostics_public.py
+      - name: 合成案件保存測試
+        run: python tests/test_case_archive.py
       - name: Windows隔离安装与升级
         if: runner.os == 'Windows'
         shell: pwsh

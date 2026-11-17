@@ -24,5 +24,5 @@ def observed(function,entry):
             import json
             command=[sys.executable,str(component),'record','--home',str(home),'--entry',entry,'--started',str(started),'--exit-code',str(code),'--argument-list',json.dumps(selected,ensure_ascii=False)]
             if kind:command.extend(['--exception-kind',kind])
-            try:subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=12,creationflags=0x08000000 if os.name=='nt' else 0)
+            try:subprocess.run(command,stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=90,creationflags=0x08000000 if os.name=='nt' else 0)
             except Exception:pass

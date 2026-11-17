@@ -19,7 +19,7 @@ def schedule(home,device_id):
         if old:
             action=old.Definition.Actions.Item(1)
             if Path(action.Path).resolve()!=python.resolve() or action.Arguments!=args:raise ValueError('同名定时任务不属于当前组件，拒绝替换')
-        task=service.NewTask(0);task.RegistrationInfo.Description=NOTICE;task.Settings.Enabled=True;task.Settings.StartWhenAvailable=True;task.Settings.ExecutionTimeLimit='PT2M';task.Settings.MultipleInstances=2
+        task=service.NewTask(0);task.RegistrationInfo.Description=NOTICE;task.Settings.Enabled=True;task.Settings.StartWhenAvailable=True;task.Settings.ExecutionTimeLimit='PT10M';task.Settings.MultipleInstances=2
         user=subprocess.run(['whoami'],capture_output=True,text=True,check=True,timeout=10).stdout.strip()
         task.Principal.UserId=user;task.Principal.LogonType=3;task.Principal.RunLevel=0
         trigger=task.Triggers.Create(2);trigger.StartBoundary=datetime.datetime.now().replace(microsecond=0).isoformat();trigger.DaysInterval=1;trigger.Repetition.Interval='PT5M';trigger.Repetition.Duration='P1D'
