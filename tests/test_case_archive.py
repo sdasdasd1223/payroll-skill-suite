@@ -1,6 +1,6 @@
 """明確合成案件；不含真實薪資、不連線 GitHub，不讀取其他聊天。"""
 from pathlib import Path
-import base64, copy, json, os, shutil, sys, tempfile, threading, unittest, urllib.error, urllib.request, uuid
+import base64, copy, json, os, shutil, socket, subprocess, sys, tempfile, threading, unittest, urllib.error, urllib.request, uuid
 from unittest.mock import patch
 P=Path(__file__).resolve().parents[1];sys.path.insert(0,str(P/'diagnostics'))
 import admin, case_admin, case_archive, case_store, collector, common, conversation_reader, install_client
@@ -28,6 +28,7 @@ class Cases(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):cls.shared.cleanup()
     def setUp(self):
+        self.environment=patch.dict(os.environ,{'CODEX_THREAD_ID':''});self.environment.start();self.addCleanup(self.environment.stop)
         self.t=tempfile.TemporaryDirectory();self.root=Path(self.t.name).resolve();self.ah=self.root/'admin';common.private_dir(self.ah)
         for name in ['admin-key.secure','organization.json']:shutil.copyfile(self.shared_path/'admin'/name,self.ah/name)
         (self.ah/'devices.json').write_text('{}');self.profile=admin.create_profile(self.ah,'合成人資甲')
@@ -204,5 +205,52 @@ class Cases(unittest.TestCase):
         with common.database(self.home) as connection:payload=connection.execute('SELECT envelope FROM events').fetchone()[0]
         event=common.decrypt(json.loads(payload),common.load_secret(self.ah/'admin-key.secure'))
         self.assertEqual(event['case_archive_state'],'context_missing')
+    def test_identical_names_in_two_directories_keep_distinct_sources(self):
+        a=self.case/'第一來源';b=self.case/'第二來源';a.mkdir();b.mkdir();one=a/'同名.xlsx';two=b/'同名.xlsx';shutil.copyfile(self.source,one);shutil.copyfile(self.source,two)
+        result=case_store.capture(self.path,[(one,'source'),(two,'source')],self.home,self.org,conversation=self.conversation,add_current_turn=False)
+        cases,rejected=case_admin.load_cases(self.cloud(),self.ah);self.assertFalse(rejected)
+        files=[x for x in cases[0]['files'] if x['role']=='source'];self.assertEqual(len({x['file_id'] for x in files}),2);self.assertEqual(len({x['source_label'] for x in files}),2)
+    def test_legacy_identical_aliases_are_preserved_but_flagged(self):
+        result=self.capture();folder=self.cloud();path=next(folder.glob('cases/manifests/*/*.json'));env=common.read_json(path);event=common.decrypt(env,common.load_secret(self.ah/'admin-key.secure'),case_store.CASE_EVENT)
+        for item in event['files']:item.pop('source_label',None)
+        event['files'].append(dict(event['files'][0]));envelope=common.sign_envelope(common.encrypt(event,self.org['public_key_pem'],case_store.CASE_EVENT),self.profile['device_id'],self.profile['ssh_private_pem'].encode());path.write_bytes(common.canonical(envelope))
+        cases,rejected=case_admin.load_cases(folder,self.ah);self.assertFalse(rejected);self.assertTrue(any('早期驗收' in x for x in cases[0]['issues']))
+        event['files'][-1]['name']='不同內容.xlsx';path.write_bytes(common.canonical(common.sign_envelope(common.encrypt(event,self.org['public_key_pem'],case_store.CASE_EVENT),self.profile['device_id'],self.profile['ssh_private_pem'].encode())))
+        self.assertTrue(case_admin.load_cases(folder,self.ah)[1])
+    def test_new_chat_in_same_case_is_bound_and_background_does_not_add_others(self):
+        other_thread=str(uuid.uuid4());other_turn='new-turn'
+        second=dict(self.conversation,thread_id=other_thread,turn_ids=[other_turn],messages=[{'role':'user','text':'同案新對話的補充'}])
+        def extract(thread,turns):
+            self.assertIn(thread,[self.thread,other_thread]);return copy.deepcopy(self.conversation if thread==self.thread else second)
+        with patch.dict(os.environ,{'CODEX_THREAD_ID':other_thread}),patch.object(conversation_reader,'latest_turn',return_value=other_turn),patch.object(conversation_reader,'extract',side_effect=extract):
+            result=case_store.capture(self.path,[(self.source,'source')],self.home,self.org)
+        context=common.read_json(self.path);self.assertEqual(len(context['conversation']['additional_threads']),1)
+        cases,rejected=case_admin.load_cases(self.cloud(),self.ah);self.assertFalse(rejected);meta=next(x for x in cases[0]['files'] if x['role']=='conversation');transcript=json.loads(case_admin.file_bytes(cases[0],meta['file_id'],self.cloud(),self.ah)[1]);self.assertEqual(len(transcript['messages']),3)
+        with patch.dict(os.environ,{'CODEX_THREAD_ID':str(uuid.uuid4())}),patch.object(conversation_reader,'latest_turn',side_effect=AssertionError('不可綁其他聊天')),patch.object(conversation_reader,'extract',side_effect=extract):case_store.refresh(self.home,self.org)
+        self.assertEqual(len(common.read_json(self.path)['conversation']['additional_threads']),1)
+    def test_existing_proxy_transports_only_bytes_without_logging_credentials(self):
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen();port=listener.getsockname()[1];seen=[]
+        client_data=b'client-stream-test'+bytes(range(256))+b'\r\n\x1a\x00';server_data=b'proxy-stream-test'+bytes(reversed(range(256)))+b'\r\n\x1a\x00'
+        def proxy():
+            with listener.accept()[0] as connection:
+                header=bytearray()
+                while not header.endswith(b'\r\n\r\n'):header.extend(connection.recv(1))
+                seen.append(bytes(header));connection.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n');received=bytearray()
+                while len(received)<len(client_data):received.extend(connection.recv(1024))
+                seen.append(bytes(received));connection.sendall(server_data)
+            listener.close()
+        worker=threading.Thread(target=proxy,daemon=True);worker.start();address='http://synthetic-user:synthetic-pass@127.0.0.1:'+str(port)
+        env=dict(os.environ,HTTPS_PROXY=address,https_proxy=address,HTTP_PROXY=address,http_proxy=address,ALL_PROXY='',all_proxy='')
+        result=subprocess.run([sys.executable,str(P/'diagnostics/ssh_proxy.py')],input=client_data,capture_output=True,env=env,timeout=15);worker.join(timeout=3)
+        self.assertEqual(result.returncode,0);self.assertEqual(result.stdout,server_data);self.assertEqual(seen[1],client_data);self.assertIn(b'CONNECT ssh.github.com:443 HTTP/1.1',seen[0]);self.assertNotIn(b'synthetic-pass',result.stderr)
+    def test_partial_network_download_is_resumed_without_redownloading_verified_ciphertext(self):
+        self.capture();reader=FakeCloud(self.cloud());target=self.root/'archive';original=reader.blob_bytes;failed=[False]
+        def download(entry):
+            if '/objects/' in entry['path'] and not failed[0]:failed[0]=True;raise ConnectionError('合成中斷')
+            return original(entry)
+        with patch.object(reader,'blob_bytes',side_effect=download):
+            with self.assertRaises(ConnectionError):case_archive.archive_cases(target,self.ah,reader,0)
+        self.assertTrue(list((target/'downloads').glob('*.bin')));self.assertFalse((target/'last-success.json').exists())
+        result=case_archive.archive_cases(target,self.ah,reader,0);self.assertEqual(result['state'],'success');self.assertEqual(reader.reads,len(reader.files));self.assertFalse(list((target/'downloads').glob('*.bin')))
 
 if __name__=='__main__':unittest.main(verbosity=2)

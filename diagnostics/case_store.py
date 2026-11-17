@@ -140,6 +140,20 @@ def decrypt_attachment(cipher, meta, case_id, pem):
     if len(raw)!=meta['bytes'] or digest(raw)!=meta['sha256']:raise ValueError('原件還原摘要不符')
     return raw
 
+def read_bound_conversations(bind):
+    from conversation_reader import extract
+    primary=extract(bind['thread_id'],bind['turn_ids']);additional=bind.get('additional_threads',[])
+    if not additional:return primary
+    bindings=[{'thread_id':bind['thread_id'],'turn_ids':bind['turn_ids']}]+additional
+    if len(bindings)>10 or sum(len(item['turn_ids']) for item in bindings)>100:raise ValueError('案件綁定超過 10 個對話或 100 輪')
+    groups=[primary]+[extract(item['thread_id'],item['turn_ids']) for item in additional]
+    result=dict(primary,bindings=bindings,messages=[],tool_summary=[],completed_turns=all(item['completed_turns'] for item in groups),omitted_nontext_items=sum(item.get('omitted_nontext_items',0) for item in groups))
+    for group in groups:
+        result['messages'] += [dict(item,thread_id=group['thread_id']) for item in group['messages']]
+        result['tool_summary'] += [dict(item,thread_id=group['thread_id']) for item in group.get('tool_summary',[])]
+    if len(canonical(result))>4*1024*1024:raise ValueError('合併案件對話超過 4 MiB，未截斷冒充完整')
+    return result
+
 def _capture(context_path, files=None, home=None, org=None, entry='manual_checkpoint', conversation=None, close=False, add_current_turn=True, refresh_only=False, capture_issues=None):
     home=private_dir(home_path(home));org=org or organization();context_path=Path(context_path).resolve();context=read_json(context_path)
     if context.get('schema')!='payroll-case-1' or context_path.parent!=Path(context['root']).resolve():raise ValueError('案件設定位置不符')
@@ -154,19 +168,27 @@ def _capture(context_path, files=None, home=None, org=None, entry='manual_checkp
         resolved=safe_under(path,context['allowed_roots']);tracked[(str(resolved),role)]={'path':str(resolved),'role':role}
     if len(tracked)>MAX_FILES:raise ValueError('案件文件超過 128 份，本版需分案，沒有略過多餘文件')
     context['tracked_files']=list(tracked.values());bind=context['conversation']
-    if add_current_turn and bind.get('thread_id') and os.environ.get('CODEX_THREAD_ID')==bind['thread_id']:
+    if add_current_turn and os.environ.get('CODEX_THREAD_ID'):
         try:
             from conversation_reader import latest_turn
-            current=latest_turn(bind['thread_id'])
-            if current not in bind['turn_ids']:bind['turn_ids'].append(current)
+            current_thread=identifier(os.environ['CODEX_THREAD_ID']);current=latest_turn(current_thread)
+            if not bind.get('thread_id'):bind.update(thread_id=current_thread,turn_ids=[],bind_state='bound')
+            if current_thread==bind['thread_id']:target=bind
+            else:
+                additional=bind.setdefault('additional_threads',[])
+                target=next((item for item in additional if item['thread_id']==current_thread),None)
+                if target is None:
+                    if len(additional)>=9:raise ValueError('案件超過 10 個綁定對話')
+                    target={'thread_id':current_thread,'turn_ids':[]};additional.append(target)
+            if current not in target['turn_ids']:target['turn_ids'].append(current)
         except Exception:issues.append('本輪對話讀取未完成')
     if conversation is None and bind.get('thread_id') and bind.get('turn_ids'):
         try:
-            from conversation_reader import extract
-            conversation=extract(bind['thread_id'],bind['turn_ids'])
+            conversation=read_bound_conversations(bind)
         except Exception:issues.append('綁定對話匯出失敗，原件可獨立保存並等待重試')
     if conversation is not None:
         if conversation.get('thread_id')!=bind.get('thread_id') or conversation.get('turn_ids')!=bind.get('turn_ids'):raise ValueError('匯出的對話不屬於綁定輪次')
+        if bind.get('additional_threads') and conversation.get('bindings')!=[{'thread_id':bind['thread_id'],'turn_ids':bind['turn_ids']}]+bind['additional_threads']:raise ValueError('跨對話匯出沒有完整綁定範圍')
         convo_state='completed_visible_text' if conversation.get('completed_turns') else 'in_progress'
         if conversation.get('omitted_nontext_items'):issues.append('對話包含尚未保存的非文字內容')
     else:convo_state='not_bound' if not bind.get('thread_id') else 'unavailable'
@@ -185,11 +207,16 @@ def _capture(context_path, files=None, home=None, org=None, entry='manual_checkp
             if before.st_size>MAX_FILE:raise ValueError('單一文件超過 32 MiB')
             raw=path.read_bytes();after=path.stat()
             if before.st_mtime_ns!=after.st_mtime_ns or before.st_size!=after.st_size or len(raw)!=before.st_size:raise ValueError('文件正在變更，等待穩定後重試')
-            total+=len(raw);descriptors.append((path.name,item['role'],raw))
-    if conversation is not None:descriptors.append(('案件對話.json','conversation',canonical(conversation)))
+            if path.is_relative_to(Path(context['root'])):source_label=path.relative_to(Path(context['root'])).as_posix()
+            else:
+                root_index=next(i for i,root in enumerate(context['allowed_roots']) if path==Path(root) or path.is_relative_to(Path(root)))
+                relative=path.relative_to(Path(context['allowed_roots'][root_index])).as_posix()
+                source_label='指定來源'+str(root_index)+'/'+(relative if relative!='.' else path.name)
+            total+=len(raw);descriptors.append((path.name,item['role'],raw,source_label))
+    if conversation is not None:descriptors.append(('案件對話.json','conversation',canonical(conversation),'對話/案件對話.json'))
     if total>MAX_TOTAL:raise ValueError('案件超過 256 MiB，未截斷歸檔')
     context['closed']=context['closed'] or close
-    fingerprint=digest(canonical({'files':[(meta['name'],meta['role'],meta['sha256']) for meta in cached_files]+[(name,role,digest(raw)) for name,role,raw in descriptors],
+    fingerprint=digest(canonical({'files':[(meta['name'],meta['role'],meta['sha256'],meta.get('source_label',meta['name'])) for meta in cached_files]+[(name,role,digest(raw),label) for name,role,raw,label in descriptors],
                                  'people':context['employees'],'conversation':convo_state,'issues':issues,'closed':context['closed']}))
     if context.get('last_snapshot_fingerprint')==fingerprint:
         save_context(context_path,context)
@@ -197,14 +224,15 @@ def _capture(context_path, files=None, home=None, org=None, entry='manual_checkp
         return {'state':'unchanged','case_id':case_id,'conversation_state':convo_state,'files':len(descriptors)}
     attachments=list(cached_files);object_dir=private_dir(home/'case-objects')
     with db(home) as connection:
-        for name,role,raw in descriptors:
-            cache_key=digest(canonical([case_id,name,role,digest(raw)]))
+        for name,role,raw,source_label in descriptors:
+            cache_key=digest(canonical([case_id,source_label,name,role,digest(raw)]))
             old=connection.execute('SELECT metadata FROM file_cache WHERE cache_key=?',(cache_key,)).fetchone()
             if old:
                 meta=json.loads(unprotect(old[0]));stored=object_dir/(meta['file_id']+'.bin')
                 if not stored.is_file() or digest(stored.read_bytes())!=meta['cipher_sha256']:raise ValueError('本機附件隊列損壞')
             else:
                 meta,cipher=encrypt_attachment(raw,name,role,case_id,org)
+                meta['source_label']=source_label
                 target=object_dir/(meta['file_id']+'.bin')
                 with target.open('xb') as stream:stream.write(cipher);stream.flush();os.fsync(stream.fileno())
                 connection.execute('INSERT INTO file_cache VALUES(?,?)',(cache_key,protect(canonical(meta))))
@@ -260,7 +288,7 @@ def sync(home=None,org=None):
         if not acquired:return {'state':'busy','sent':0}
         with db(home) as connection:rows=connection.execute("SELECT id,envelope FROM snapshots WHERE state='queued' ORDER BY created LIMIT 10").fetchall()
         if not rows:return {'state':'up_to_date','sent':0}
-        with client_git_environment(home,client,org) as env:
+        with client_git_environment(home,client,org,use_http_proxy=True) as env:
             repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180)
             # 附件內容與用途只在加密清單內；同步器只搬運本機已生成的密文。
             with db(home) as connection:cached=connection.execute('SELECT metadata FROM file_cache').fetchall()

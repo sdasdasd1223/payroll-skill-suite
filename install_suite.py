@@ -31,7 +31,6 @@ def main():
     sys.path.insert(0,str(ROOT/'diagnostics'))
     from common import NOTICE,canonical,lock,organization,private_dir,read_json_secret,save_secret
     from admin import verify_profile
-    print(NOTICE)
     org=organization(ROOT/'diagnostics/organization.json')
     profile_path=a.device_profile or ROOT/'device-profile.private.json'
     profile=None

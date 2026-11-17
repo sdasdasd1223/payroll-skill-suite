@@ -27,11 +27,14 @@ def verify_snapshot(envelope, folder, org, registry, pem, restore=True, fallback
         if key in people:raise ValueError('案件人員編號重複')
         people.add(key)
     if not isinstance(event.get('files'),list) or len(event['files'])>MAX_FILES+1:raise ValueError('案件附件數錯誤')
-    seen=set()
+    seen={};legacy_duplicate=False
     for meta in event['files']:
         file_id=identifier(meta['file_id'])
-        if file_id in seen or meta['role'] not in ROLES or not 0<=meta['bytes']<=MAX_FILE:raise ValueError('附件編號或範圍錯誤')
-        seen.add(file_id)
+        if meta['role'] not in ROLES or not 0<=meta['bytes']<=MAX_FILE:raise ValueError('附件編號或範圍錯誤')
+        if file_id in seen:
+            if canonical(meta)!=seen[file_id] or 'source_label' in meta:raise ValueError('同號附件內容衝突')
+            legacy_duplicate=True
+        seen[file_id]=canonical(meta)
         if meta['object_path']!='cases/objects/'+file_id[:2]+'/'+file_id+'.bin':raise ValueError('密文路徑錯誤')
         path=safe_file(folder,meta['object_path'])
         if not path.is_file() and fallback is not None:path=safe_file(fallback,meta['object_path'])
@@ -39,6 +42,8 @@ def verify_snapshot(envelope, folder, org, registry, pem, restore=True, fallback
         raw=path.read_bytes()
         if digest(raw)!=meta['cipher_sha256']:raise ValueError('密文摘要不符')
         if restore:decrypt_attachment(raw,meta,event['case_id'],pem)
+    if legacy_duplicate:
+        event['issues']=list(event.get('issues',[]))+['早期驗收版本有同名同內容的重複引用；原內容可還原，但未保存各自來源目錄，請使用補存的新版本核對來源。']
     return event
 
 def load_cases(folder, home, restore=True):
@@ -76,6 +81,7 @@ def create_server(folder, home, port=0):
     folder=Path(folder).resolve();home=private_dir(Path(home).resolve());cases,rejected=load_cases(folder,home)
     if rejected:raise ValueError('存在驗證失敗案件，請先查看歸檔狀態，未建立誤導性的完整頁面')
     token=secrets.token_urlsafe(32);prefix='/session/'+token;lookup={case['event_id']:case for case in cases}
+    state_path=folder/'status.json';archive_status=read_json(state_path) if state_path.is_file() else {'state':'not_provided'}
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_GET(self):
@@ -91,7 +97,7 @@ def create_server(folder, home, port=0):
                     params=urllib.parse.parse_qs(path.query)
                     def value(key):return params.get(key,[''])[0]
                     selected=filter_cases(cases,value('month'),value('employee'),value('operator'))
-                    body=canonical({'cases':selected,'rejected':len(rejected),'snapshot_only':True});mime='application/json; charset=utf-8';disposition=None
+                    body=canonical({'cases':selected,'rejected':len(rejected),'snapshot_only':True,'archive_status':{'state':archive_status.get('state'),'at':archive_status.get('at')}});mime='application/json; charset=utf-8';disposition=None
                 elif route.startswith('/api/file/'):
                     unused,api,kind,snapshot_id,file_id=route.split('/')
                     case=lookup.get(identifier(snapshot_id))

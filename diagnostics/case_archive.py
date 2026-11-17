@@ -1,6 +1,6 @@
 """從指定私有 GitHub 倉庫下載案件密文；完整校驗後本機歸檔，永不刪除雲端。"""
 from __future__ import annotations
-import datetime, json, os, re, shutil, tempfile, urllib.request, uuid
+import datetime, http.client, json, os, re, shutil, tempfile, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 from common import canonical, decrypt, digest, load_secret, lock, organization, private_dir, private_key, read_json, verify_sender
 from diagnostic_archive import GitHubReader, REPOSITORY, OWNER, SHA, git_sha, safe_path, atomic_json
@@ -12,6 +12,12 @@ MANIFEST=re.compile(r'cases/manifests/('+UUID+r')/('+UUID+r')\.json\Z')
 OBJECT=re.compile(r'cases/objects/([0-9a-f]{2})/('+UUID+r')\.bin\Z')
 
 class CaseReader(GitHubReader):
+    def get(self,suffix):
+        for attempt in range(3):
+            try:return super().get(suffix)
+            except (urllib.error.URLError,TimeoutError,http.client.IncompleteRead):
+                if attempt==2:raise
+                time.sleep(.3*(attempt+1))
     def all_entries(self):
         if self.get('/user').get('login')!=OWNER:raise ValueError('不是公司管理員帳戶')
         base='/repos/'+REPOSITORY;repo=self.get(base)
@@ -38,7 +44,13 @@ class CaseReader(GitHubReader):
         request=urllib.request.Request('https://api.github.com/repos/'+REPOSITORY+'/git/blobs/'+entry['sha'],headers={
             'Authorization':'Bearer '+self.token,'Accept':'application/vnd.github.raw+json',
             'X-GitHub-Api-Version':'2026-03-10','User-Agent':'company-payroll-case-archive'})
-        with self.opener.open(request,timeout=40) as response:raw=response.read(entry['size']+1)
+        for attempt in range(3):
+            try:
+                with self.opener.open(request,timeout=40) as response:raw=response.read(entry['size']+1)
+                break
+            except (urllib.error.URLError,TimeoutError,http.client.IncompleteRead):
+                if attempt==2:raise
+                time.sleep(.3*(attempt+1))
         if len(raw)!=entry['size'] or git_sha(raw)!=entry['sha']:raise ValueError('案件下載摘要不符')
         return raw
 
@@ -58,7 +70,18 @@ def archive_cases(root,admin_home,reader,reserve_bytes=10*2**30):
                     existing=safe_path(root,entry['path'])
                     if existing.exists():raw=existing.read_bytes()
                     else:
-                        raw=reader.blob_bytes(entry);target=safe_path(staging,entry['path']);target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw);pending.append((target,existing))
+                        if not SHA.fullmatch(entry['sha']):raise ValueError('下載暫存識別錯誤')
+                        download=safe_path(root,'downloads/'+entry['sha']+'.bin')
+                        if download.exists():raw=download.read_bytes()
+                        else:
+                            raw=reader.blob_bytes(entry)
+                            if len(raw)!=entry['size'] or git_sha(raw)!=entry['sha']:raise ValueError('下載摘要不符')
+                            download.parent.mkdir(parents=True,exist_ok=True);temporary=download.with_name(download.name+'.part-'+uuid.uuid4().hex)
+                            try:
+                                with temporary.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+                                os.replace(temporary,download)
+                            finally:temporary.unlink(missing_ok=True)
+                        target=safe_path(staging,entry['path']);target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw);pending.append((target,existing))
                     if len(raw)!=entry['size'] or git_sha(raw)!=entry['sha']:raise ValueError('已歸檔或下載的案件內容不符')
                     needed[entry['path']]=entry
                     return raw
@@ -75,7 +98,7 @@ def archive_cases(root,admin_home,reader,reserve_bytes=10*2**30):
                         if not OBJECT.fullmatch(object_path) or object_path not in entries:raise ValueError('案件附件缺失')
                         needed[object_path]=entries[object_path]
                 new_size=sum(entry['size'] for entry in needed.values() if not safe_path(root,entry['path']).exists())
-                if shutil.disk_usage(root).free<reserve_bytes+new_size+1024*1024:raise OSError('案件歸檔磁碟空間不足')
+                if shutil.disk_usage(root).free<reserve_bytes+3*new_size+1024*1024:raise OSError('案件歸檔磁碟空間不足')
                 for path,entry in list(needed.items()):
                     if OBJECT.fullmatch(path):obtain(entry)
                 for envelope in snapshots:verify_snapshot(envelope,staging,org,registry,pem,True,fallback=root)
@@ -85,6 +108,8 @@ def archive_cases(root,admin_home,reader,reserve_bytes=10*2**30):
                     if digest(target.read_bytes())!=digest(source.read_bytes()):raise OSError('案件落盤校驗失敗')
                 for path in sorted(needed):
                     raw=safe_path(root,path).read_bytes();receipts.append({'path':path,'sha256':digest(raw),'bytes':len(raw)})
+                    download=safe_path(root,'downloads/'+needed[path]['sha']+'.bin')
+                    if download.exists():download.unlink()
             metadata={'organization':org,'registered_devices':registry};meta_path=safe_path(root,'metadata/'+digest(canonical(metadata))+'.json')
             if not meta_path.exists():atomic_json(meta_path,metadata)
             result={'schema':'company-payroll-case-archive-1','state':'success','at':datetime.datetime.now(datetime.timezone.utc).isoformat(),

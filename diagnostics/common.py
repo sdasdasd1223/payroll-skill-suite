@@ -1,6 +1,6 @@
 """核算诊断的加密、私有存储和受限 Git 传输。"""
 from __future__ import annotations
-import base64, contextlib, ctypes, hashlib, json, os, re, shlex, sqlite3, subprocess, sys, tempfile, time, uuid
+import base64, contextlib, ctypes, hashlib, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, urllib.request, uuid
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -130,14 +130,26 @@ def git_run(args,env=None,cwd=None,timeout=25):
     return p.stdout.strip()
 
 @contextlib.contextmanager
-def client_git_environment(home,config,org):
+def client_git_environment(home,config,org,use_http_proxy=False):
     # 短期SSH私钥仅在当前用户的受限目录解封，不调用用户的SSH代理。
     with tempfile.TemporaryDirectory(prefix='ssh-',dir=home) as folder:
         folder=private_dir(Path(folder),harden=True);identity=folder/'identity';known=folder/'known_hosts'
         identity.write_bytes(config['ssh_private_pem'].encode('utf-8'));known.write_bytes(org['known_hosts'].encode('utf-8'))
         if os.name!='nt':identity.chmod(0o600)
-        command=shlex.join(['ssh','-i',identity.as_posix(),'-p','443','-o','IdentitiesOnly=yes','-o','IdentityAgent=none','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+known.as_posix(),'-o','ConnectTimeout=10'])
-        yield {'GIT_SSH_COMMAND':command,'GIT_SSH_VARIANT':'ssh'}
+        arguments=['ssh','-i',identity.as_posix(),'-p','443','-o','IdentitiesOnly=yes','-o','IdentityAgent=none','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+known.as_posix(),'-o','ConnectTimeout=10']
+        ssh_environment={'GIT_SSH_VARIANT':'ssh'}
+        if use_http_proxy and (urllib.request.getproxies().get('https') or urllib.request.getproxies().get('http')):
+            if os.name=='nt':
+                git=shutil.which('git');git_shell=Path(git).resolve().parent.parent/'usr/bin/sh.exe' if git else None
+                if not git_shell or not git_shell.is_file():raise RuntimeError('代理上傳需要完整 Git for Windows 的 shell')
+                # 僅此 Git/SSH 子行程使用 POSIX shell，避免把 exec 交給 PowerShell。
+                ssh_environment['SHELL']=git_shell.as_posix()
+            proxy_args=[Path(sys.executable).as_posix(),Path(__file__).with_name('ssh_proxy.py').as_posix()]
+            proxy_command=subprocess.list2cmdline(proxy_args) if os.name=='nt' else shlex.join(proxy_args)
+            arguments+=['-o','ProxyCommand='+proxy_command]
+        command=shlex.join(arguments)
+        ssh_environment['GIT_SSH_COMMAND']=command
+        yield ssh_environment
 
 def cache(home,remote,env=None,transport_timeout=25):
     home=Path(home).resolve();target=home/'cloud-cache'

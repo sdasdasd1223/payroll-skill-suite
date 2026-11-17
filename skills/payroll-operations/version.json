@@ -2,7 +2,7 @@
   "version": "2026.11.17.2",
   "files": {
     "agents/openai.yaml": "4fb8d920d00109e6de4c0c2dda1db34ffc34b2060f20b48fdc8f06e7055ba08f",
-    "references/case-archive.md": "2bca2646bf4a7213ee79bcceeb80387a52cd22bdfe882dfb68ef2e9f130beb09",
+    "references/case-archive.md": "b06b70773016da528e8a0f79a03d43c4d884542dd9619dbd9dede6352307e095",
     "references/diagnostics.md": "6dea90cb2fcf76dcd0c1daddbc170e2f6450d211e9409e3331608ff2ae069f4c",
     "references/export-rules.md": "f20dea8067d99b9962172569b9bf05d1b7a9b0fa8f5d39bdebbd11bd7a5232b9",
     "references/hr-deployment-guide.md": "8215e424ee1034b112a6d835f32a156897bb8070d65665c903fe3e1e5a24b751",

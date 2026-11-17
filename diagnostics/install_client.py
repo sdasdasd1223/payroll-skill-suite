@@ -61,7 +61,6 @@ def install(home=None,profile_path=None,org=None,skip_schedule=False):
 
 def main():
     ap=argparse.ArgumentParser(description='安装公司核算诊断记录组件');ap.add_argument('--home',type=Path);ap.add_argument('--profile',type=Path);ap.add_argument('--skip-schedule',action='store_true');ap.add_argument('--check',action='store_true');a=ap.parse_args();org=organization()
-    print(NOTICE)
     if a.profile:verify_profile(read_json(a.profile),org)
     if a.check:print('组织公钥与设备配置检查通过');return
     result=install(a.home,a.profile,org,a.skip_schedule)

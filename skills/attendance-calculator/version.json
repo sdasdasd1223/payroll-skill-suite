@@ -3,7 +3,7 @@
   "files": {
     "agents/openai.yaml": "685405666651f719926f07b8530bbaf4ccda1be551ebffd0a5ff0c1883bfb770",
     "references/business-rules.md": "e8da59d1cb871a6c38e88b47a0536dce220a28fcb77a9631fe4ba3f1bc156aec",
-    "references/case-archive.md": "2bca2646bf4a7213ee79bcceeb80387a52cd22bdfe882dfb68ef2e9f130beb09",
+    "references/case-archive.md": "b06b70773016da528e8a0f79a03d43c4d884542dd9619dbd9dede6352307e095",
     "references/input-output-schema.md": "faedd03ff54e0849b8316a68a9513f784694e169f6b324a6eedd3b72d46bb135",
     "references/reward-policy.md": "af3c0f9a036f2d1c8d312c7a5b1e978ac3e7c1ea47ec44da2fba5e5ae582f462",
     "scripts/diagnostics_bridge.py": "62dd3055859985f61b887417ea16275609c48e58bb654d491b4b036f8cfd25cd",
