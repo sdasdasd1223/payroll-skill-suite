@@ -80,10 +80,10 @@ class Cases(unittest.TestCase):
         for word in ['合成甲','原始考勤','合成獎勵','已核對合成獎勵']:self.assertNotIn(word.encode(),raw)
         self.assertNotIn('原始考勤',' '.join(str(p) for p in folder.rglob('*')))
     def test_unapproved_source_is_rejected(self):
-        other=self.root/'其他案件.txt';other.write_text('不可讀取')
+        other=self.root/'其他案件.txt';other.write_text('不可讀取',encoding='utf-8')
         with self.assertRaises(ValueError):case_store.capture(self.path,[(other,'source')],self.home,self.org,conversation=self.conversation,add_current_turn=False)
     def test_credentials_filename_rejected(self):
-        secret=self.case/'api-token.json';secret.write_text('不能上傳')
+        secret=self.case/'api-token.json';secret.write_text('不能上傳',encoding='utf-8')
         with self.assertRaises(ValueError):case_store.capture(self.path,[(secret,'source')],self.home,self.org,conversation=self.conversation,add_current_turn=False)
     def test_whole_drive_scope_rejected(self):
         with self.assertRaises(ValueError):case_store.begin(self.root/'other','2099-09',self.people,self.home,allowed_roots=[str(self.root.anchor)],thread_id=self.thread,turn_ids=[self.turn])

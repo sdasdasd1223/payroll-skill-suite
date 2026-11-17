@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, hmac, http.server, json, mimetypes, os, re, secrets, sqlite3, sys, threading, urllib.parse, uuid
 from pathlib import Path
-from common import canonical, decrypt, digest, load_secret, private_dir, read_json, verify_sender
+from common import canonical, decrypt, digest, load_secret, private_dir, private_key, read_json, verify_sender
 from case_store import MAX_FILE, MAX_FILES, CASE_EVENT, ROLES, decrypt_attachment, identifier
 
 def safe_file(root, relative):
@@ -42,7 +42,7 @@ def verify_snapshot(envelope, folder, org, registry, pem, restore=True, fallback
     return event
 
 def load_cases(folder, home, restore=True):
-    folder=Path(folder).resolve();home=Path(home).resolve();org=read_json(home/'organization.json');registry=read_json(home/'devices.json');pem=load_secret(home/'admin-key.secure')
+    folder=Path(folder).resolve();home=Path(home).resolve();org=read_json(home/'organization.json');registry=read_json(home/'devices.json');pem=private_key(load_secret(home/'admin-key.secure'))
     cases=[];rejected=[]
     for path in sorted(folder.glob('cases/manifests/*/*.json')):
         try:
@@ -117,6 +117,8 @@ def create_server(folder, home, port=0):
     return server,'http://127.0.0.1:'+str(server.server_port)+prefix+'/'
 
 def main():
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8')
     parser=argparse.ArgumentParser(description='管理員公司案件查看')
     parser.add_argument('command',choices=['check','view']);parser.add_argument('--folder',required=True,type=Path);parser.add_argument('--home',type=Path);parser.add_argument('--port',type=int,default=0)
     args=parser.parse_args();home=args.home or Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'payroll-diagnostics-admin'

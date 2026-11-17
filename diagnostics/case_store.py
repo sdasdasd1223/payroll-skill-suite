@@ -261,7 +261,7 @@ def sync(home=None,org=None):
         with db(home) as connection:rows=connection.execute("SELECT id,envelope FROM snapshots WHERE state='queued' ORDER BY created LIMIT 10").fetchall()
         if not rows:return {'state':'up_to_date','sent':0}
         with client_git_environment(home,client,org) as env:
-            repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env)
+            repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180)
             # 附件內容與用途只在加密清單內；同步器只搬運本機已生成的密文。
             with db(home) as connection:cached=connection.execute('SELECT metadata FROM file_cache').fetchall()
             for (protected,) in cached:
@@ -279,14 +279,16 @@ def sync(home=None,org=None):
             if git_run(['status','--porcelain'],cwd=repo,env=env):
                 git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','commit','-m','追加加密核算案件及附件'],cwd=repo,env=env)
                 for attempt in range(3):
-                    try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env);break
+                    try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
                     except RuntimeError:
                         if attempt==2:raise
-                        git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','pull','--rebase','origin','main'],cwd=repo,env=env)
+                        git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','pull','--rebase','origin','main'],cwd=repo,env=env,timeout=180)
         with db(home) as connection:connection.executemany("UPDATE snapshots SET state='synced' WHERE id=?",[(row[0],) for row in rows])
         return {'state':'synced','sent':len(rows)}
 
 def main():
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8')
     parser=argparse.ArgumentParser(description='公司薪資案件保存')
     parser.add_argument('command',choices=['begin','checkpoint','flush','status']);parser.add_argument('--root',type=Path);parser.add_argument('--context',type=Path);parser.add_argument('--month');parser.add_argument('--people',type=Path);parser.add_argument('--operator');parser.add_argument('--allow-root',action='append',default=[]);parser.add_argument('--file',action='append',default=[]);parser.add_argument('--result',action='append',default=[]);parser.add_argument('--thread-id');parser.add_argument('--close',action='store_true');parser.add_argument('--home',type=Path)
     args=parser.parse_args();home=home_path(args.home)

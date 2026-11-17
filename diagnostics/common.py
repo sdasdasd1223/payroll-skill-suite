@@ -56,7 +56,7 @@ def public_key(pem):
     if not isinstance(key,rsa.RSAPublicKey) or key.key_size<3072:raise ValueError('管理公钥须为3072位或以上RSA')
     return key
 def key_id(pem):return digest(public_key(pem).public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo))[:24]
-def private_key(pem):return serialization.load_pem_private_key(pem,password=None)
+def private_key(pem):return pem if isinstance(pem,rsa.RSAPrivateKey) else serialization.load_pem_private_key(pem,password=None)
 def encrypt(event,pem,max_bytes=MAX_EVENT):
     raw=canonical(event)
     if not MAX_EVENT<=max_bytes<=512*1024 or len(raw)>max_bytes:raise ValueError('诊断或案件事件超过允许大小')
@@ -139,19 +139,19 @@ def client_git_environment(home,config,org):
         command=shlex.join(['ssh','-i',identity.as_posix(),'-p','443','-o','IdentitiesOnly=yes','-o','IdentityAgent=none','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-o','UserKnownHostsFile='+known.as_posix(),'-o','ConnectTimeout=10'])
         yield {'GIT_SSH_COMMAND':command,'GIT_SSH_VARIANT':'ssh'}
 
-def cache(home,remote,env=None):
+def cache(home,remote,env=None,transport_timeout=25):
     home=Path(home).resolve();target=home/'cloud-cache'
     if target.resolve().parent!=home or target.is_symlink():raise ValueError('诊断缓存路径越界')
     marker=home/'cache-owner.json'
     if not target.exists():
         with tempfile.TemporaryDirectory(prefix='cloud-cache-new-',dir=home) as staging:
             if Path(staging).resolve().parent!=home:raise ValueError('临时缓存目录越界')
-            git_run(['clone','--depth','1',remote,str(Path(staging)/'repo')],env=env)
+            git_run(['clone','--depth','1',remote,str(Path(staging)/'repo')],env=env,timeout=transport_timeout)
             os.replace(Path(staging)/'repo',target)
         marker.write_text(json.dumps({'remote':remote}),encoding='utf-8')
     elif not marker.exists() or read_json(marker).get('remote')!=remote or git_run(['remote','get-url','origin'],cwd=target,env=env)!=remote:
         raise ValueError('拒绝使用不属于本组件的目录')
-    git_run(['fetch','origin','main','--depth','1'],cwd=target,env=env)
+    git_run(['fetch','origin','main','--depth','1'],cwd=target,env=env,timeout=transport_timeout)
     # 只重置本组件已核实的专用缓存；未同步事件保留在SQLite加密队列。
     git_run(['reset','--hard','origin/main'],cwd=target,env=env)
     return target

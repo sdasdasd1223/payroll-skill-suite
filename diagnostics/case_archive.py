@@ -2,7 +2,7 @@
 from __future__ import annotations
 import datetime, json, os, re, shutil, tempfile, urllib.request, uuid
 from pathlib import Path
-from common import canonical, decrypt, digest, load_secret, lock, organization, private_dir, read_json, verify_sender
+from common import canonical, decrypt, digest, load_secret, lock, organization, private_dir, private_key, read_json, verify_sender
 from diagnostic_archive import GitHubReader, REPOSITORY, OWNER, SHA, git_sha, safe_path, atomic_json
 from case_store import MAX_FILE, CASE_EVENT
 from case_admin import verify_snapshot
@@ -49,7 +49,7 @@ def archive_cases(root,admin_home,reader,reserve_bytes=10*2**30):
     with lock(root) as acquired:
         if not acquired:raise RuntimeError('案件歸檔正在執行')
         try:
-            home=Path(admin_home);org=organization(home/'organization.json');registry=read_json(home/'devices.json');pem=load_secret(home/'admin-key.secure')
+            home=Path(admin_home);org=organization(home/'organization.json');registry=read_json(home/'devices.json');pem=private_key(load_secret(home/'admin-key.secure'))
             if org['repository']!=REPOSITORY:raise ValueError('歸檔組織不符')
             commit,entries=reader.all_entries();needed={};snapshots=[];receipts=[];pending=[]
             with tempfile.TemporaryDirectory(prefix='.pending-',dir=root) as temp:
