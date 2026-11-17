@@ -15,7 +15,7 @@
     "install.ps1": "20d867fa41949873db64dc405b0872212c548d48d91334e36041ff8fc6c9bfc6",
     "install.sh": "7543fb6148c0b143f04ce22fc50abcf3b729a5854f175cc2d0112b787885b6fb",
     "install_suite.py": "635f33ed8425789c8e5321ddd76c91d66edf299b0cd9600762e77141139952e7",
-    "README.md": "5bbbcb51803cc8756562f7cabf2ddce79a7e58a0bee67985d1290dc85cbe6db2",
+    "README.md": "72bf214e4f64b6a9f7d3a6cc75fcab21a0be771b36a77f9b4236b4b160304ef1",
     "skills/attendance-calculator/agents/openai.yaml": "685405666651f719926f07b8530bbaf4ccda1be551ebffd0a5ff0c1883bfb770",
     "skills/attendance-calculator/checksums.sha256": "1dcb49d46c3e2ac9b4ff0b69b0bcc70ee110d026168cf9c4903faa26dff8efc4",
     "skills/attendance-calculator/references/business-rules.md": "e8da59d1cb871a6c38e88b47a0536dce220a28fcb77a9631fe4ba3f1bc156aec",
@@ -95,6 +95,7 @@
     "在线安装命令模板.txt": "e84186577572075032cbbc19ece1135d6fac62f79a5b0a8f8fa39abbab6c8e75",
     "工资核算Skill完整内容.md": "83a77391cc50986664f9ad6461de33a405fd5a42fb83c16363ce8e01f34f626d",
     "管理员查看诊断.ps1": "d21fbdb7e0da9dca8a1a4da0ff2e48b76e5fe89f84557be15fb483f414ededbf",
-    "诊断管理员操作说明.md": "d1b9a6ff974b4876d27f315b3b35442e5fa3c4ba4f0f7bb1606d54ab0fb43dc5"
+    "诊断管理员操作说明.md": "d1b9a6ff974b4876d27f315b3b35442e5fa3c4ba4f0f7bb1606d54ab0fb43dc5",
+    "公司记录归档说明.md": "39900cd8a6975df7f3f80f16095e31d4d07353511fce768ba456859878936516"
   }
 }
