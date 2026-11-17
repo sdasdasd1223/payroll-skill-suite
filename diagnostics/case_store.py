@@ -1,6 +1,6 @@
 """公司核算案件：限定來源、密文附件、版本與明確綁定的對話。"""
 from __future__ import annotations
-import argparse, base64, contextlib, datetime, getpass, json, os, re, sqlite3, sys, time, uuid
+import argparse, base64, contextlib, datetime, getpass, json, os, re, sqlite3, subprocess, sys, time, uuid
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -284,33 +284,33 @@ def refresh(home=None,org=None):
 
 def sync(home=None,org=None):
     home=home_path(home);org=org or organization();client=read_json_secret(home/'client.secure')
+    if client['repository']!=org['repository'] or client['key_id']!=org['key_id']:raise ValueError('案件上傳組織與密鑰不符')
     with lock(home) as acquired:
         if not acquired:return {'state':'busy','sent':0}
         with db(home) as connection:rows=connection.execute("SELECT id,envelope FROM snapshots WHERE state='queued' ORDER BY created LIMIT 10").fetchall()
         if not rows:return {'state':'up_to_date','sent':0}
         with client_git_environment(home,client,org,use_http_proxy=True) as env:
-            repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180)
-            # 附件內容與用途只在加密清單內；同步器只搬運本機已生成的密文。
             with db(home) as connection:cached=connection.execute('SELECT metadata FROM file_cache').fetchall()
-            for (protected,) in cached:
-                meta=json.loads(unprotect(protected));source=home/'case-objects'/(meta['file_id']+'.bin')
-                destination=repo/meta['object_path'];destination.parent.mkdir(parents=True,exist_ok=True)
-                raw=source.read_bytes()
-                if digest(raw)!=meta['cipher_sha256']:raise ValueError('附件隊列摘要不符')
-                if destination.exists() and destination.read_bytes()!=raw:raise ValueError('雲端附件同號衝突')
-                if not destination.exists():destination.write_bytes(raw)
-            for event_id,payload in rows:
-                destination=repo/'cases/manifests'/client['device_id']/(identifier(event_id)+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
-                if destination.exists() and destination.read_bytes()!=payload.encode():raise ValueError('雲端案件同號衝突')
-                destination.write_bytes(payload.encode())
-            git_run(['add','--','cases'],cwd=repo,env=env)
-            if git_run(['status','--porcelain'],cwd=repo,env=env):
+            for attempt in range(3):
+                # 每次從最新已核實的專用快取重建；來源仍在密文隊列，不使用互動 rebase。
+                repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180)
+                for (protected,) in cached:
+                    meta=json.loads(unprotect(protected));source=home/'case-objects'/(meta['file_id']+'.bin')
+                    destination=repo/meta['object_path'];destination.parent.mkdir(parents=True,exist_ok=True)
+                    raw=source.read_bytes()
+                    if digest(raw)!=meta['cipher_sha256']:raise ValueError('附件隊列摘要不符')
+                    if destination.exists() and destination.read_bytes()!=raw:raise ValueError('雲端附件同號衝突')
+                    if not destination.exists():destination.write_bytes(raw)
+                for event_id,payload in rows:
+                    destination=repo/'cases/manifests'/client['device_id']/(identifier(event_id)+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
+                    if destination.exists() and destination.read_bytes()!=payload.encode():raise ValueError('雲端案件同號衝突')
+                    destination.write_bytes(payload.encode())
+                git_run(['add','--','cases'],cwd=repo,env=env)
+                if not git_run(['diff','--cached','--name-only','--','cases'],cwd=repo,env=env):break
                 git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','commit','-m','追加加密核算案件及附件'],cwd=repo,env=env)
-                for attempt in range(3):
-                    try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
-                    except RuntimeError:
-                        if attempt==2:raise
-                        git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','pull','--rebase','origin','main'],cwd=repo,env=env,timeout=180)
+                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
+                except (RuntimeError,subprocess.TimeoutExpired):
+                    if attempt==2:raise
         with db(home) as connection:connection.executemany("UPDATE snapshots SET state='synced' WHERE id=?",[(row[0],) for row in rows])
         return {'state':'synced','sent':len(rows)}
 

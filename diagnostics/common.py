@@ -1,6 +1,6 @@
 """核算诊断的加密、私有存储和受限 Git 传输。"""
 from __future__ import annotations
-import base64, contextlib, ctypes, hashlib, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, urllib.request, uuid
+import base64, contextlib, ctypes, hashlib, json, os, re, shlex, shutil, signal, sqlite3, subprocess, sys, tempfile, threading, time, urllib.request, uuid
 from pathlib import Path
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -122,10 +122,71 @@ def lock(home):
         yield True
     finally:handle.close()
 
+class WindowsTransportJob:
+    """把本次 Git 及其子行程放進同一作業；關閉時只終止本次行程樹。"""
+    def __init__(self):
+        from ctypes import wintypes
+        class Basic(ctypes.Structure):
+            _fields_=[('process_time',ctypes.c_longlong),('job_time',ctypes.c_longlong),('flags',wintypes.DWORD),('minimum',ctypes.c_size_t),('maximum',ctypes.c_size_t),('active',wintypes.DWORD),('affinity',ctypes.c_size_t),('priority',wintypes.DWORD),('scheduling',wintypes.DWORD)]
+        class IO(ctypes.Structure):_fields_=[(name,ctypes.c_ulonglong) for name in ('read_ops','write_ops','other_ops','read_bytes','write_bytes','other_bytes')]
+        class Extended(ctypes.Structure):_fields_=[('basic',Basic),('io',IO),('process_memory',ctypes.c_size_t),('job_memory',ctypes.c_size_t),('peak_process',ctypes.c_size_t),('peak_job',ctypes.c_size_t)]
+        self.kernel=ctypes.windll.kernel32;self.kernel.CreateJobObjectW.argtypes=[ctypes.c_void_p,ctypes.c_wchar_p];self.kernel.CreateJobObjectW.restype=ctypes.c_void_p
+        self.kernel.SetInformationJobObject.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,wintypes.DWORD];self.kernel.AssignProcessToJobObject.argtypes=[ctypes.c_void_p,ctypes.c_void_p];self.kernel.CloseHandle.argtypes=[ctypes.c_void_p]
+        self.handle=self.kernel.CreateJobObjectW(None,None)
+        if not self.handle:raise OSError('無法建立獨立傳輸作業')
+        limit=Extended();limit.basic.flags=0x2000
+        if not self.kernel.SetInformationJobObject(self.handle,9,ctypes.byref(limit),ctypes.sizeof(limit)):
+            self.close();raise OSError('無法設定傳輸程序清理')
+    def assign(self,process):
+        if not self.kernel.AssignProcessToJobObject(self.handle,int(process._handle)):raise OSError('無法隔離本次傳輸程序')
+    def close(self):
+        if self.handle:self.kernel.CloseHandle(self.handle);self.handle=None
+
+def run_transport(command,env=None,cwd=None,timeout=25):
+    job=WindowsTransportJob() if os.name=='nt' else None
+    try:process=subprocess.Popen(command,cwd=cwd,env=env,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000000 if os.name=='nt' else 0,start_new_session=os.name!='nt')
+    except BaseException:
+        if job:job.close()
+        raise
+    buffers=[bytearray(),bytearray()];readers=[]
+    def drain(stream,buffer):
+        try:
+            while True:
+                raw=stream.read(65536)
+                if not raw:break
+                buffer.extend(raw)
+        finally:stream.close()
+    try:
+        if job:job.assign(process)
+        for stream,buffer in zip((process.stdout,process.stderr),buffers):
+            reader=threading.Thread(target=drain,args=(stream,buffer),daemon=True);reader.start();readers.append(reader)
+        # 等待 Git 本身，不把已退出主行程的殘留 SSH 管線誤當成仍在傳輸。
+        code=process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if job:job.close()
+        else:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+        try:process.wait(timeout=5)
+        except subprocess.TimeoutExpired:process.kill()
+        for reader in readers:reader.join(timeout=5)
+        raise subprocess.TimeoutExpired(command,timeout) from None
+    except BaseException:
+        if process.poll() is None:process.kill()
+        raise
+    finally:
+        if job:job.close()
+        elif process.poll() is not None:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+    for reader in readers:reader.join(timeout=5)
+    if any(reader.is_alive() for reader in readers):raise RuntimeError('傳輸輸出管線未完成清理')
+    return subprocess.CompletedProcess(command,code,bytes(buffers[0]).decode('utf-8','replace'),bytes(buffers[1]).decode('utf-8','replace'))
+
 def git_run(args,env=None,cwd=None,timeout=25):
     settings=dict(os.environ,GIT_TERMINAL_PROMPT='0',GCM_INTERACTIVE='Never')
     if env:settings.update(env)
-    p=subprocess.run(['git','-c','core.hooksPath='+str(Path(__file__).parent/'no-hooks'),'-c','commit.gpgsign=false']+list(args),cwd=cwd,env=settings,capture_output=True,text=True,encoding='utf-8',errors='replace',timeout=timeout,creationflags=0x08000000 if os.name=='nt' else 0)
+    p=run_transport(['git','-c','core.hooksPath='+str(Path(__file__).parent/'no-hooks'),'-c','commit.gpgsign=false']+list(args),cwd=cwd,env=settings,timeout=timeout)
     if p.returncode:raise RuntimeError('GIT_TRANSPORT_FAILED')
     return p.stdout.strip()
 
@@ -145,13 +206,13 @@ def client_git_environment(home,config,org,use_http_proxy=False):
                 # 僅此 Git/SSH 子行程使用 POSIX shell，避免把 exec 交給 PowerShell。
                 ssh_environment['SHELL']=git_shell.as_posix()
             proxy_args=[Path(sys.executable).as_posix(),Path(__file__).with_name('ssh_proxy.py').as_posix()]
-            proxy_command=subprocess.list2cmdline(proxy_args) if os.name=='nt' else shlex.join(proxy_args)
+            proxy_command=shlex.join(proxy_args)
             arguments+=['-o','ProxyCommand='+proxy_command]
         command=shlex.join(arguments)
         ssh_environment['GIT_SSH_COMMAND']=command
         yield ssh_environment
 
-def cache(home,remote,env=None,transport_timeout=25):
+def cache(home,remote,env=None,transport_timeout=25,allow_recovery=True):
     home=Path(home).resolve();target=home/'cloud-cache'
     if target.resolve().parent!=home or target.is_symlink():raise ValueError('诊断缓存路径越界')
     marker=home/'cache-owner.json'
@@ -163,7 +224,19 @@ def cache(home,remote,env=None,transport_timeout=25):
         marker.write_text(json.dumps({'remote':remote}),encoding='utf-8')
     elif not marker.exists() or read_json(marker).get('remote')!=remote or git_run(['remote','get-url','origin'],cwd=target,env=env)!=remote:
         raise ValueError('拒绝使用不属于本组件的目录')
-    git_run(['fetch','origin','main','--depth','1'],cwd=target,env=env,timeout=transport_timeout)
+    try:
+        if (target/'.git/rebase-merge').exists() or (target/'.git/rebase-apply').exists():git_run(['rebase','--abort'],cwd=target,env=env)
+        git_run(['fetch','origin','main','--depth','1'],cwd=target,env=env,timeout=transport_timeout)
+    except (RuntimeError,subprocess.TimeoutExpired):
+        stale=any((target/'.git'/name).exists() for name in ('shallow.lock','index.lock','HEAD.lock'))
+        recovery=home/'cache-recovery.json'
+        recent=recovery.is_file() and time.time()-read_json(recovery).get('at',0)<86400
+        if not allow_recovery or not stale or recent:raise
+        backup=home/('cloud-cache-failed-'+uuid.uuid4().hex)
+        if target.resolve().parent!=home or backup.resolve().parent!=home:raise ValueError('快取恢復路徑越界')
+        target.rename(backup)
+        recovery.write_bytes(canonical({'at':time.time(),'reason':'stale_git_lock','backup':backup.name}))
+        return cache(home,remote,env,transport_timeout,allow_recovery=False)
     # 只重置本组件已核实的专用缓存；未同步事件保留在SQLite加密队列。
     git_run(['reset','--hard','origin/main'],cwd=target,env=env)
     return target
@@ -175,21 +248,20 @@ def sync_client(home,org):
         if not acquired:return {'state':'busy','sent':0}
         with database(home) as db:items=db.execute("SELECT event_id,envelope FROM events WHERE state='queued' ORDER BY created LIMIT 20").fetchall()
         if not items:return {'state':'up_to_date','sent':0}
-        with client_git_environment(home,config,org) as env:
-            remote='ssh://git@ssh.github.com:443/'+org['repository']+'.git';repo=cache(home,remote,env)
-            for identifier,payload in items:
-                identifier=str(uuid.UUID(identifier))
-                destination=repo/'events'/identifier[:2]/(identifier+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
-                if destination.exists() and destination.read_text('utf-8')!=payload:raise ValueError('CLOUD_EVENT_COLLISION')
-                destination.write_text(payload,encoding='utf-8')
-            git_run(['add','--','events'],cwd=repo,env=env)
-            if git_run(['status','--porcelain'],cwd=repo,env=env):
-                git_run(['-c','user.name=诊断记录组件','-c','user.email=diagnostics@payroll.invalid','commit','-m','追加加密诊断事件'],cwd=repo,env=env)
-                for attempt in range(3):
-                    try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env);break
-                    except RuntimeError:
-                        if attempt==2:raise
-                        git_run(['-c','user.name=诊断记录组件','-c','user.email=diagnostics@payroll.invalid','pull','--rebase','origin','main'],cwd=repo,env=env)
+        with client_git_environment(home,config,org,use_http_proxy=True) as env:
+            for attempt in range(3):
+                remote='ssh://git@ssh.github.com:443/'+org['repository']+'.git';repo=cache(home,remote,env,transport_timeout=180)
+                for identifier,payload in items:
+                    identifier=str(uuid.UUID(identifier))
+                    destination=repo/'events'/identifier[:2]/(identifier+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
+                    if destination.exists() and destination.read_text('utf-8')!=payload:raise ValueError('CLOUD_EVENT_COLLISION')
+                    destination.write_text(payload,encoding='utf-8')
+                git_run(['add','--','events'],cwd=repo,env=env)
+                if not git_run(['diff','--cached','--name-only','--','events'],cwd=repo,env=env):break
+                git_run(['-c','user.name=診斷記錄元件','-c','user.email=diagnostics@payroll.invalid','commit','-m','追加加密診斷事件'],cwd=repo,env=env)
+                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
+                except (RuntimeError,subprocess.TimeoutExpired):
+                    if attempt==2:raise
             commit=git_run(['rev-parse','HEAD'],cwd=repo,env=env)
         with database(home) as db:db.executemany("UPDATE events SET state='synced',last_code=NULL,remote_commit=? WHERE event_id=?",[(commit,x[0]) for x in items])
         return {'state':'synced','sent':len(items),'commit':commit}

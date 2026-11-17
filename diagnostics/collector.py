@@ -155,11 +155,15 @@ def main():
         print(json.dumps({'待同步':counts.get('queued',0),'已同步':counts.get('synced',0),'最近状态':safe_read(home/'health.json').get('state')},ensure_ascii=False));return
     if a.command=='smoke':
         config=read_json_secret(home/'client.secure');event=event_for('diagnostics_smoke',[],time.time(),0,client=config);event['month']='2099-09';event['synthetic_only']=True;emit(event,home);print('已生成明确合成诊断事件');return
-    try:
-        from case_store import refresh,sync as sync_cases
-        refresh(home)
-        result=sync_client(home,organization());case_result=sync_cases(home);health(home,result['state']);print(json.dumps({'診斷同步狀態':result['state'],'診斷本次筆數':result['sent'],'案件同步狀態':case_result['state'],'案件本次筆數':case_result['sent']},ensure_ascii=False))
-    except Exception:
-        if home.exists():health(home,'sync_pending')
-        print('诊断记录尚未同步，已保留本机加密队列，等待网络或管理员登记恢复。');raise SystemExit(2)
+    from case_store import refresh,sync as sync_cases
+    refresh(home)
+    failures=False;result={'state':'pending','sent':0};case_result={'state':'pending','sent':0}
+    try:result=sync_client(home,organization())
+    except Exception:failures=True
+    try:case_result=sync_cases(home)
+    except Exception:failures=True
+    health(home,'sync_pending' if failures else result['state'])
+    print(json.dumps({'診斷同步狀態':result['state'],'診斷本次筆數':result['sent'],'案件同步狀態':case_result['state'],'案件本次筆數':case_result['sent']},ensure_ascii=False))
+    if failures:
+        print('未完成部分仍保留本機密文隊列，不能當成全部同步成功。');raise SystemExit(2)
 if __name__=='__main__':main()

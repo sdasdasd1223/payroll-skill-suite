@@ -1,6 +1,6 @@
 """明確合成案件；不含真實薪資、不連線 GitHub，不讀取其他聊天。"""
 from pathlib import Path
-import base64, copy, json, os, shutil, socket, subprocess, sys, tempfile, threading, unittest, urllib.error, urllib.request, uuid
+import base64, copy, ctypes, json, os, shutil, socket, subprocess, sys, tempfile, threading, time, unittest, urllib.error, urllib.request, uuid
 from unittest.mock import patch
 P=Path(__file__).resolve().parents[1];sys.path.insert(0,str(P/'diagnostics'))
 import admin, case_admin, case_archive, case_store, collector, common, conversation_reader, install_client
@@ -252,5 +252,36 @@ class Cases(unittest.TestCase):
             with self.assertRaises(ConnectionError):case_archive.archive_cases(target,self.ah,reader,0)
         self.assertTrue(list((target/'downloads').glob('*.bin')));self.assertFalse((target/'last-success.json').exists())
         result=case_archive.archive_cases(target,self.ah,reader,0);self.assertEqual(result['state'],'success');self.assertEqual(reader.reads,len(reader.files));self.assertFalse(list((target/'downloads').glob('*.bin')))
+    def test_transport_timeout_stops_its_child_tree_without_killing_other_work(self):
+        unrelated=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],creationflags=0x08000000 if os.name=='nt' else 0)
+        pid_file=self.root/'child.pid';script="import subprocess,sys,time,os;from pathlib import Path;p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(120)'],creationflags=0x08000000 if os.name=='nt' else 0);Path(sys.argv[1]).write_text(str(p.pid));time.sleep(120)"
+        try:
+            for parent_exits in (False,True):
+                body=script if not parent_exits else script.rsplit(';time.sleep(120)',1)[0]+';sys.exit(0)'
+                start=time.monotonic()
+                if parent_exits:
+                    result=common.run_transport([sys.executable,'-c',body,str(pid_file)],timeout=2);self.assertEqual(result.returncode,0)
+                else:
+                    with self.assertRaises(subprocess.TimeoutExpired):common.run_transport([sys.executable,'-c',body,str(pid_file)],timeout=2)
+                self.assertLess(time.monotonic()-start,14);self.assertTrue(pid_file.exists());child=int(pid_file.read_text());self.assertIsNone(unrelated.poll())
+                if os.name=='nt':
+                    kernel=ctypes.windll.kernel32;kernel.OpenProcess.restype=ctypes.c_void_p;kernel.GetExitCodeProcess.argtypes=[ctypes.c_void_p,ctypes.POINTER(ctypes.c_ulong)];kernel.CloseHandle.argtypes=[ctypes.c_void_p]
+                    handle=kernel.OpenProcess(0x1000,False,child)
+                    if handle:
+                        code=ctypes.c_ulong();kernel.GetExitCodeProcess(handle,ctypes.byref(code));kernel.CloseHandle(handle);self.assertNotEqual(code.value,259)
+                else:
+                    state=subprocess.run(['ps','-o','stat=','-p',str(child)],capture_output=True,text=True).stdout.strip();self.assertTrue(not state or state.startswith('Z'))
+        finally:unrelated.terminate();unrelated.wait(timeout=5)
+    def test_diagnostic_upload_failure_does_not_skip_case_upload(self):
+        with patch.object(sys,'argv',['collector.py','flush','--home',str(self.home)]),patch.object(case_store,'refresh',return_value=[]),patch.object(collector,'sync_client',side_effect=RuntimeError),patch.object(case_store,'sync',return_value={'state':'synced','sent':1}) as upload:
+            with self.assertRaises(SystemExit) as result:collector.main()
+        self.assertEqual(result.exception.code,2);upload.assert_called_once();self.assertEqual(common.read_json(self.home/'health.json')['state'],'sync_pending')
+    def test_stale_git_lock_recovers_only_owned_cache_and_keeps_failure_copy(self):
+        bare=self.root/'remote.git';seed=self.root/'seed';data=self.root/'transport-home'
+        common.git_run(['init','--bare','--initial-branch=main',str(bare)])
+        common.git_run(['clone',str(bare),str(seed)]);(seed/'README.md').write_text('synthetic')
+        common.git_run(['add','README.md'],cwd=seed);common.git_run(['-c','user.name=Synthetic','-c','user.email=synthetic@invalid','commit','-m','fixture'],cwd=seed);common.git_run(['push','origin','main'],cwd=seed)
+        common.private_dir(data);repo=common.cache(data,bare.as_uri());(repo/'.git/shallow.lock').write_text('stale synthetic lock')
+        result=common.cache(data,bare.as_uri());self.assertEqual((result/'README.md').read_text(),'synthetic');backups=list(data.glob('cloud-cache-failed-*'));self.assertEqual(len(backups),1);self.assertTrue((backups[0]/'.git/shallow.lock').exists())
 
 if __name__=='__main__':unittest.main(verbosity=2)
