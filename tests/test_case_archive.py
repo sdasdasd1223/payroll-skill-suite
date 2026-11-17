@@ -283,5 +283,14 @@ class Cases(unittest.TestCase):
         common.git_run(['add','README.md'],cwd=seed);common.git_run(['-c','user.name=Synthetic','-c','user.email=synthetic@invalid','commit','-m','fixture'],cwd=seed);common.git_run(['push','origin','main'],cwd=seed)
         common.private_dir(data);repo=common.cache(data,bare.as_uri());(repo/'.git/shallow.lock').write_text('stale synthetic lock')
         result=common.cache(data,bare.as_uri());self.assertEqual((result/'README.md').read_text(),'synthetic');backups=list(data.glob('cloud-cache-failed-*'));self.assertEqual(len(backups),1);self.assertTrue((backups[0]/'.git/shallow.lock').exists())
+    def test_thin_upload_preserves_peer_file_without_downloading_its_payload(self):
+        bare=self.root/'partial.git';seed=self.root/'partial-seed';data=self.root/'partial-client'
+        common.git_run(['init','--bare','--initial-branch=main',str(bare)]);common.git_run(['config','uploadpack.allowFilter','true'],cwd=bare)
+        common.git_run(['clone',str(bare),str(seed)]);(seed/'peer.bin').write_bytes(os.urandom(2*1024*1024));common.git_run(['add','peer.bin'],cwd=seed);common.git_run(['-c','user.name=Synthetic','-c','user.email=synthetic@invalid','commit','-m','peer'],cwd=seed);common.git_run(['push','origin','main'],cwd=seed)
+        original=common.git_run(['rev-parse','HEAD:peer.bin'],cwd=seed);common.private_dir(data);repo=common.cache(data,bare.as_uri(),thin=True)
+        self.assertFalse((repo/'peer.bin').exists());self.assertLess(sum(p.stat().st_size for p in (repo/'.git/objects').rglob('*') if p.is_file()),128*1024)
+        self.assertTrue(common.stage_blobs(repo,[('cases/objects/aa/synthetic.bin',b'synthetic ciphertext')]))
+        common.commit_index(repo,'synthetic index upload');common.git_run(['push','origin','HEAD:main'],cwd=repo)
+        self.assertEqual(common.git_run(['rev-parse','main:peer.bin'],cwd=bare),original);self.assertLess(sum(p.stat().st_size for p in (repo/'.git/objects').rglob('*') if p.is_file()),128*1024)
 
 if __name__=='__main__':unittest.main(verbosity=2)

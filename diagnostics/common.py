@@ -212,21 +212,28 @@ def client_git_environment(home,config,org,use_http_proxy=False):
         ssh_environment['GIT_SSH_COMMAND']=command
         yield ssh_environment
 
-def cache(home,remote,env=None,transport_timeout=25,allow_recovery=True):
+def cache(home,remote,env=None,transport_timeout=25,allow_recovery=True,thin=False):
     home=Path(home).resolve();target=home/'cloud-cache'
     if target.resolve().parent!=home or target.is_symlink():raise ValueError('诊断缓存路径越界')
     marker=home/'cache-owner.json'
     if not target.exists():
         with tempfile.TemporaryDirectory(prefix='cloud-cache-new-',dir=home) as staging:
             if Path(staging).resolve().parent!=home:raise ValueError('临时缓存目录越界')
-            git_run(['clone','--depth','1',remote,str(Path(staging)/'repo')],env=env,timeout=transport_timeout)
+            options=['--filter=blob:none','--no-checkout'] if thin else []
+            git_run(['clone','--depth','1']+options+[remote,str(Path(staging)/'repo')],env=env,timeout=transport_timeout)
             os.replace(Path(staging)/'repo',target)
-        marker.write_text(json.dumps({'remote':remote}),encoding='utf-8')
+        marker.write_text(json.dumps({'remote':remote,'thin':thin}),encoding='utf-8')
     elif not marker.exists() or read_json(marker).get('remote')!=remote or git_run(['remote','get-url','origin'],cwd=target,env=env)!=remote:
         raise ValueError('拒绝使用不属于本组件的目录')
+    if read_json(marker).get('thin',False)!=thin:
+        backup=home/('cloud-cache-before-mode-change-'+uuid.uuid4().hex)
+        if backup.resolve().parent!=home:raise ValueError('快取模式轉換路徑越界')
+        target.rename(backup)
+        return cache(home,remote,env,transport_timeout,allow_recovery,thin)
     try:
         if (target/'.git/rebase-merge').exists() or (target/'.git/rebase-apply').exists():git_run(['rebase','--abort'],cwd=target,env=env)
-        git_run(['fetch','origin','main','--depth','1'],cwd=target,env=env,timeout=transport_timeout)
+        options=['--filter=blob:none'] if thin else []
+        git_run(['fetch','origin','main','--depth','1']+options,cwd=target,env=env,timeout=transport_timeout)
     except (RuntimeError,subprocess.TimeoutExpired):
         stale=any((target/'.git'/name).exists() for name in ('shallow.lock','index.lock','HEAD.lock'))
         recovery=home/'cache-recovery.json'
@@ -236,10 +243,40 @@ def cache(home,remote,env=None,transport_timeout=25,allow_recovery=True):
         if target.resolve().parent!=home or backup.resolve().parent!=home:raise ValueError('快取恢復路徑越界')
         target.rename(backup)
         recovery.write_bytes(canonical({'at':time.time(),'reason':'stale_git_lock','backup':backup.name}))
-        return cache(home,remote,env,transport_timeout,allow_recovery=False)
+        return cache(home,remote,env,transport_timeout,allow_recovery=False,thin=thin)
     # 只重置本组件已核实的专用缓存；未同步事件保留在SQLite加密队列。
-    git_run(['reset','--hard','origin/main'],cwd=target,env=env)
+    if thin:
+        git_run(['update-ref','HEAD','origin/main'],cwd=target,env=env)
+        git_run(['read-tree','--reset','origin/main'],cwd=target,env=env)
+    else:git_run(['reset','--hard','origin/main'],cwd=target,env=env)
     return target
+
+def stage_blobs(repo,items,env=None):
+    # 保留遠端完整索引，只新增明確指定的密文，不下載其他設備的附件。
+    entries={}
+    for line in git_run(['ls-files','--stage'],cwd=repo,env=env).splitlines():
+        fields,path=line.split('\t',1);mode,sha,stage=fields.split()
+        if stage!='0':raise ValueError('專用快取索引未完成')
+        entries[path]=(mode,sha)
+    changed=False
+    for name,raw in items:
+        if not re.fullmatch(r'(events|cases)/[A-Za-z0-9_./-]+',name) or any(part in {'','.','..','.git'} for part in name.split('/')):raise ValueError('拒絕範圍外同步路徑')
+        sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest();old=entries.get(name)
+        if old:
+            if old!=('100644',sha):raise ValueError('雲端同號文件內容或類型衝突')
+            continue
+        with tempfile.TemporaryDirectory(prefix='blob-stage-',dir=Path(repo).parent) as folder:
+            if Path(folder).resolve().parent!=Path(repo).resolve().parent:raise ValueError('密文暫存越界')
+            source=Path(folder)/'payload';source.write_bytes(raw)
+            if git_run(['hash-object','-w',str(source)],cwd=repo,env=env)!=sha:raise ValueError('Git 密文物件不符')
+        git_run(['update-index','--add','--cacheinfo','100644,'+sha+','+name],cwd=repo,env=env);entries[name]=('100644',sha);changed=True
+    return changed
+
+def commit_index(repo,message,env=None):
+    tree=git_run(['write-tree','--missing-ok'],cwd=repo,env=env);parent=git_run(['rev-parse','HEAD'],cwd=repo,env=env)
+    commit=git_run(['-c','user.name=公司加密歸檔','-c','user.email=archive@payroll.invalid','commit-tree',tree,'-p',parent,'-m',message],cwd=repo,env=env)
+    if not re.fullmatch(r'[0-9a-f]{40}',commit):raise ValueError('提交版本不符')
+    git_run(['update-ref','HEAD',commit],cwd=repo,env=env);return commit
 
 def sync_client(home,org):
     home=Path(home);config=read_json_secret(home/'client.secure')
@@ -250,16 +287,11 @@ def sync_client(home,org):
         if not items:return {'state':'up_to_date','sent':0}
         with client_git_environment(home,config,org,use_http_proxy=True) as env:
             for attempt in range(3):
-                remote='ssh://git@ssh.github.com:443/'+org['repository']+'.git';repo=cache(home,remote,env,transport_timeout=180)
-                for identifier,payload in items:
-                    identifier=str(uuid.UUID(identifier))
-                    destination=repo/'events'/identifier[:2]/(identifier+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
-                    if destination.exists() and destination.read_text('utf-8')!=payload:raise ValueError('CLOUD_EVENT_COLLISION')
-                    destination.write_text(payload,encoding='utf-8')
-                git_run(['add','--','events'],cwd=repo,env=env)
-                if not git_run(['diff','--cached','--name-only','--','events'],cwd=repo,env=env):break
-                git_run(['-c','user.name=診斷記錄元件','-c','user.email=diagnostics@payroll.invalid','commit','-m','追加加密診斷事件'],cwd=repo,env=env)
-                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
+                remote='ssh://git@ssh.github.com:443/'+org['repository']+'.git';repo=cache(home,remote,env,transport_timeout=180,thin=True)
+                payloads=[('events/'+identifier[:2]+'/'+str(uuid.UUID(identifier))+'.json',payload.encode('utf-8')) for identifier,payload in items]
+                if not stage_blobs(repo,payloads,env):break
+                commit_index(repo,'追加加密診斷事件',env)
+                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=900);break
                 except (RuntimeError,subprocess.TimeoutExpired):
                     if attempt==2:raise
             commit=git_run(['rev-parse','HEAD'],cwd=repo,env=env)

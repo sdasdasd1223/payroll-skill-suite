@@ -5,7 +5,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from common import canonical, client_git_environment, cache, decrypt, digest, encrypt, git_run, home_path, load_secret, lock, organization, private_dir, private_key, protect, public_key, read_json, read_json_secret, sign_envelope, unprotect
+from common import canonical, client_git_environment, cache, decrypt, digest, encrypt, git_run, home_path, load_secret, lock, organization, private_dir, private_key, protect, public_key, read_json, read_json_secret, sign_envelope, stage_blobs, commit_index, unprotect
 
 MAX_FILE=32*1024*1024
 MAX_TOTAL=256*1024*1024
@@ -291,24 +291,17 @@ def sync(home=None,org=None):
         if not rows:return {'state':'up_to_date','sent':0}
         with client_git_environment(home,client,org,use_http_proxy=True) as env:
             with db(home) as connection:cached=connection.execute('SELECT metadata FROM file_cache').fetchall()
-            for attempt in range(3):
-                # 每次從最新已核實的專用快取重建；來源仍在密文隊列，不使用互動 rebase。
-                repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180)
+            def payloads():
                 for (protected,) in cached:
-                    meta=json.loads(unprotect(protected));source=home/'case-objects'/(meta['file_id']+'.bin')
-                    destination=repo/meta['object_path'];destination.parent.mkdir(parents=True,exist_ok=True)
-                    raw=source.read_bytes()
+                    meta=json.loads(unprotect(protected));source=home/'case-objects'/(meta['file_id']+'.bin');raw=source.read_bytes()
                     if digest(raw)!=meta['cipher_sha256']:raise ValueError('附件隊列摘要不符')
-                    if destination.exists() and destination.read_bytes()!=raw:raise ValueError('雲端附件同號衝突')
-                    if not destination.exists():destination.write_bytes(raw)
-                for event_id,payload in rows:
-                    destination=repo/'cases/manifests'/client['device_id']/(identifier(event_id)+'.json');destination.parent.mkdir(parents=True,exist_ok=True)
-                    if destination.exists() and destination.read_bytes()!=payload.encode():raise ValueError('雲端案件同號衝突')
-                    destination.write_bytes(payload.encode())
-                git_run(['add','--','cases'],cwd=repo,env=env)
-                if not git_run(['diff','--cached','--name-only','--','cases'],cwd=repo,env=env):break
-                git_run(['-c','user.name=公司案件歸檔','-c','user.email=archive@payroll.invalid','commit','-m','追加加密核算案件及附件'],cwd=repo,env=env)
-                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=180);break
+                    yield meta['object_path'],raw
+                for event_id,payload in rows:yield 'cases/manifests/'+client['device_id']+'/'+identifier(event_id)+'.json',payload.encode('utf-8')
+            for attempt in range(3):
+                repo=cache(home,'ssh://git@ssh.github.com:443/'+org['repository']+'.git',env,transport_timeout=180,thin=True)
+                if not stage_blobs(repo,payloads(),env):break
+                commit_index(repo,'追加加密核算案件及附件',env)
+                try:git_run(['push','origin','HEAD:main'],cwd=repo,env=env,timeout=900);break
                 except (RuntimeError,subprocess.TimeoutExpired):
                     if attempt==2:raise
         with db(home) as connection:connection.executemany("UPDATE snapshots SET state='synced' WHERE id=?",[(row[0],) for row in rows])
