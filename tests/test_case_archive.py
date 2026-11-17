@@ -164,6 +164,9 @@ class Cases(unittest.TestCase):
         class FakeRPC:
             def request(self,*args,**kwargs):return {'data':[],'nextCursor':None}
         with self.assertRaises(ValueError):conversation_reader.extract(self.thread,['missing'],FakeRPC())
+        class MetadataOnlyRPC:
+            def request(self,*args,**kwargs):return {'data':[{'id':'wanted','status':'completed','items':[]}],'nextCursor':None}
+        with self.assertRaises(ValueError):conversation_reader.extract(self.thread,['wanted'],MetadataOnlyRPC())
     def test_more_than_old_24_files_and_large_manifest_roundtrip(self):
         files=[]
         for index in range(70):
@@ -178,6 +181,10 @@ class Cases(unittest.TestCase):
         result=case_store.capture(self.path,[(path,'run_record')],self.home,self.org,conversation=self.conversation,add_current_turn=False)
         self.assertEqual(result['files'],2)
     def test_automatic_entry_preserves_pending_exit_and_saves_available_inputs(self):
+        for flag in ('--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'):
+            self.assertIn((self.source,'source'),case_store.explicit_files([flag,str(self.source)]))
+        for bridge in (Path(__file__).resolve().parents[1]/'skills').glob('*/scripts/diagnostics_bridge.py'):
+            self.assertIn("'--plan'",bridge.read_text('utf-8'))
         with patch.object(conversation_reader,'extract',return_value=self.conversation):
             value=collector.observed(lambda:2,'process_attendance',['--month','2099-09','--attendance',str(self.source),'--output',str(self.case/'missing-result.json')],self.home,self.org,False)
         self.assertEqual(value,2)

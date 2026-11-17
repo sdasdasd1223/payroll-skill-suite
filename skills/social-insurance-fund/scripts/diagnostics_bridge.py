@@ -17,7 +17,7 @@ def observed(function,entry):
         if not component.is_file():component=root/'diagnostics'/'collector.py'
         home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).resolve()/'payroll-diagnostics-data'
         if component.is_file() and (home/'client.secure').is_file():
-            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime'}
+            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'}
             selected=[];args=sys.argv[1:]
             for index,flag in enumerate(args[:-1]):
                 if flag in allowed:selected.extend([flag,args[index+1]])

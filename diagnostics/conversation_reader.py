@@ -86,6 +86,7 @@ def extract(thread_id, turn_ids, rpc=None):
             elif kind in {'commandExecution','fileChange','mcpToolCall','dynamicToolCall'}:
                 tool_events.append({'turn_id':identifier,'kind':kind,'status':item.get('status'),'exit_code':item.get('exitCode')})
             # 不保存 reasoning、隱藏思考、任意工具輸出或原始命令。
+    if not messages:raise ValueError('綁定輪次沒有提供可見訊息，不能當成完整對話')
     result={'schema':'payroll-case-conversation-1','thread_id':thread_id,'turn_ids':turn_ids,'messages':messages,
             'tool_summary':tool_events,'completed_turns':complete,'omitted_nontext_items':omitted,
             'coverage':'bound_turns_visible_text_only'}

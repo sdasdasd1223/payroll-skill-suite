@@ -109,7 +109,7 @@ def explicit_files(args):
             if isinstance(source,dict) and source.get('path'):
                 value=Path(source['path'])
                 files.append((value if value.is_absolute() else path.parent/value,'result' if source.get('role')=='calculation' else 'source'))
-    for flag in ('--workbook','--attendance','--roster','--history','--overtime'):
+    for flag in ('--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'):
         value=arg(args,flag)
         if value:files.append((Path(value),'source'))
     output=arg(args,'--output')

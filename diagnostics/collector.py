@@ -57,7 +57,7 @@ def event_for(entry,args,started,exit_code,exception_kind=None,client=None):
                 item=fingerprint(Path(record_path).resolve().parent/source['path'],source.get('role','other'))
                 if item:files.append(item)
             except OSError:pass
-    for flag in ('--workbook','--attendance','--roster','--history','--overtime'):
+    for flag in ('--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'):
         value=arg(args,flag)
         if value:
             try:
@@ -140,6 +140,8 @@ def observed(function,entry,argv=None,home=None,org=None,background=True):
                 except OSError:pass
 
 def main():
+    for stream in (sys.stdout,sys.stderr):
+        if hasattr(stream,'reconfigure'):stream.reconfigure(encoding='utf-8')
     ap=argparse.ArgumentParser(description='公司薪资核算诊断组件');ap.add_argument('command',choices=['flush','status','smoke','record']);ap.add_argument('--home',type=Path);ap.add_argument('--entry',choices=sorted(ENTRIES));ap.add_argument('--started',type=float);ap.add_argument('--exit-code',type=int,default=0);ap.add_argument('--exception-kind');ap.add_argument('--argument-list',default='[]');a=ap.parse_args();home=home_path(a.home)
     if a.command=='record':
         if not (home/'client.secure').is_file():return

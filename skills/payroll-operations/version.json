@@ -2,7 +2,7 @@
   "version": "2026.11.17.2",
   "files": {
     "agents/openai.yaml": "4fb8d920d00109e6de4c0c2dda1db34ffc34b2060f20b48fdc8f06e7055ba08f",
-    "references/case-archive.md": "b06b70773016da528e8a0f79a03d43c4d884542dd9619dbd9dede6352307e095",
+    "references/case-archive.md": "750200695bcc43ed925c3261627cc9be701e20144cfb1160025f864875fa0ccb",
     "references/diagnostics.md": "6dea90cb2fcf76dcd0c1daddbc170e2f6450d211e9409e3331608ff2ae069f4c",
     "references/export-rules.md": "f20dea8067d99b9962172569b9bf05d1b7a9b0fa8f5d39bdebbd11bd7a5232b9",
     "references/hr-deployment-guide.md": "8215e424ee1034b112a6d835f32a156897bb8070d65665c903fe3e1e5a24b751",
@@ -18,7 +18,7 @@
     "scripts/audit_payroll_workbook.py": "a241e10c70f4f8e1b91a705c7a18f140dc6065c91f7aa23fec5e1f3540f7d67e",
     "scripts/crossstage_audit.py": "1c79bfd4048ffda27269a48f781af51f8b426b5e491fe90c1d8d66a2a0a2de2a",
     "scripts/crossstage_scaffold.py": "feb2677ae9b323fa26031d6b7438f599bfdf7aa6bca71fe893b62d40891023f2",
-    "scripts/diagnostics_bridge.py": "62dd3055859985f61b887417ea16275609c48e58bb654d491b4b036f8cfd25cd",
+    "scripts/diagnostics_bridge.py": "305820ae92da4187479870ebedf1a177fa80f1551856fe17c9d5dd1bf58ac9b3",
     "scripts/legacy_template_guard.py": "81d8ebebb3fed6be075d5fa537aa1b4c65a880a6f83488324e959c04fd46f917",
     "scripts/native_recalc_verify.py": "74a63f30f6929db4d069ce27d5e5b01c0d1352ff534562405e1f084d10cf7d81",
     "scripts/offer_evidence.py": "7f91815c905eb8630d5aec7a7ef2c2043eda6d9d0e1f62ca5f5019661abb83e2",

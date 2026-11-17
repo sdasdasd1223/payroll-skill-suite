@@ -46,6 +46,8 @@ interface:
 檔案保存及還原摘要一致只能證明版本保存，不能證明薪資金額正確。薪資、獎勵金與人工確認繼續遵守原計算及交付規則。
 
 附件同步沿用本機既有 HTTP 網路代理（若有），不改系統網路設定；SSH 仍核對 GitHub 官方主機金鑰。網路不通或上傳逾時只保留待同步，不能宣稱已送達。
+
+自動入口會保存明確傳入的薪資計畫及社保單檔參數。社保以整個來源資料夾或備援 CSV 輸出資料夾運作時，助理仍須把實際使用的每份原件及輸出逐份 checkpoint；本版不因一個資料夾參數就擴大掃描。
 `````
 
 ## skills/payroll-operations/references/diagnostics.md
@@ -3045,7 +3047,7 @@ def observed(function,entry):
         if not component.is_file():component=root/'diagnostics'/'collector.py'
         home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).resolve()/'payroll-diagnostics-data'
         if component.is_file() and (home/'client.secure').is_file():
-            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime'}
+            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'}
             selected=[];args=sys.argv[1:]
             for index,flag in enumerate(args[:-1]):
                 if flag in allowed:selected.extend([flag,args[index+1]])
@@ -5846,6 +5848,8 @@ interface:
 檔案保存及還原摘要一致只能證明版本保存，不能證明薪資金額正確。薪資、獎勵金與人工確認繼續遵守原計算及交付規則。
 
 附件同步沿用本機既有 HTTP 網路代理（若有），不改系統網路設定；SSH 仍核對 GitHub 官方主機金鑰。網路不通或上傳逾時只保留待同步，不能宣稱已送達。
+
+自動入口會保存明確傳入的薪資計畫及社保單檔參數。社保以整個來源資料夾或備援 CSV 輸出資料夾運作時，助理仍須把實際使用的每份原件及輸出逐份 checkpoint；本版不因一個資料夾參數就擴大掃描。
 `````
 
 ## skills/attendance-calculator/references/input-output-schema.md
@@ -6100,7 +6104,7 @@ def observed(function,entry):
         if not component.is_file():component=root/'diagnostics'/'collector.py'
         home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).resolve()/'payroll-diagnostics-data'
         if component.is_file() and (home/'client.secure').is_file():
-            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime'}
+            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'}
             selected=[];args=sys.argv[1:]
             for index,flag in enumerate(args[:-1]):
                 if flag in allowed:selected.extend([flag,args[index+1]])
@@ -6929,6 +6933,8 @@ policy:
 檔案保存及還原摘要一致只能證明版本保存，不能證明薪資金額正確。薪資、獎勵金與人工確認繼續遵守原計算及交付規則。
 
 附件同步沿用本機既有 HTTP 網路代理（若有），不改系統網路設定；SSH 仍核對 GitHub 官方主機金鑰。網路不通或上傳逾時只保留待同步，不能宣稱已送達。
+
+自動入口會保存明確傳入的薪資計畫及社保單檔參數。社保以整個來源資料夾或備援 CSV 輸出資料夾運作時，助理仍須把實際使用的每份原件及輸出逐份 checkpoint；本版不因一個資料夾參數就擴大掃描。
 `````
 
 ## skills/attendance-settlement/SKILL.md
@@ -7002,6 +7008,8 @@ policy:
 檔案保存及還原摘要一致只能證明版本保存，不能證明薪資金額正確。薪資、獎勵金與人工確認繼續遵守原計算及交付規則。
 
 附件同步沿用本機既有 HTTP 網路代理（若有），不改系統網路設定；SSH 仍核對 GitHub 官方主機金鑰。網路不通或上傳逾時只保留待同步，不能宣稱已送達。
+
+自動入口會保存明確傳入的薪資計畫及社保單檔參數。社保以整個來源資料夾或備援 CSV 輸出資料夾運作時，助理仍須把實際使用的每份原件及輸出逐份 checkpoint；本版不因一個資料夾參數就擴大掃描。
 `````
 
 ## skills/social-insurance-fund/scripts/build_social_insurance_fund.py
@@ -7521,7 +7529,7 @@ def observed(function,entry):
         if not component.is_file():component=root/'diagnostics'/'collector.py'
         home=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex'))).resolve()/'payroll-diagnostics-data'
         if component.is_file() and (home/'client.secure').is_file():
-            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime'}
+            allowed={'--record','--output','--month','--workbook','--attendance','--roster','--history','--overtime','--plan','--input','--pension','--unemployment','--medical','--housing-fund','--source-periods'}
             selected=[];args=sys.argv[1:]
             for index,flag in enumerate(args[:-1]):
                 if flag in allowed:selected.extend([flag,args[index+1]])
