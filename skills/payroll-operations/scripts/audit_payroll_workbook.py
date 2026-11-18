@@ -144,6 +144,4 @@ def main():
     a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({'passed':result['passed'],'technical_passed':result['technical_passed'],'technical_pending':result['technical_pending'],'errors':len(result['errors']),'formula_checks':len(result['formula_checks']),'pending_totals':len(result['pending_totals'])}))
     raise SystemExit(0 if result['technical_passed'] else 2)
-if __name__=='__main__':
-    from diagnostics_bridge import observed
-    observed(main,'audit_payroll_workbook')
+if __name__=='__main__':main()

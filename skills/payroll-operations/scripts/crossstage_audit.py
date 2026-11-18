@@ -1086,6 +1086,4 @@ def main():
     print(json.dumps({k:result.get(k) for k in ('passed','calculation_passed','formal_ready','purpose','delivery_status','delivery_message','technical_delivery','errors','pending')},ensure_ascii=False))
     raise SystemExit(0 if result['passed'] else 2)
 
-if __name__=='__main__':
-    from diagnostics_bridge import observed
-    observed(main,'crossstage_audit')
+if __name__ == '__main__': main()

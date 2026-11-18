@@ -1,8 +1,7 @@
 {
-  "version": "2026.11.17.2",
+  "version": "2026.11.18.1",
   "files": {
     "agents/openai.yaml": "5df78f2d55c8be75af282b1451330798f3ab485bb14a0a7b6b02f3de191b4213",
-    "references/case-archive.md": "750200695bcc43ed925c3261627cc9be701e20144cfb1160025f864875fa0ccb",
-    "SKILL.md": "035a3b89fbff19f07684ee171db9ac22a086925099fd6e59e2bf374a81f02fc6"
+    "SKILL.md": "790c4169a1be9c72ba89b453d0a9e436bd8aa6daf21efeda77bc97d7bb0ad2a5"
   }
 }

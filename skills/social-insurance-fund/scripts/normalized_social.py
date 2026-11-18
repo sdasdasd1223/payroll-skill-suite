@@ -94,6 +94,4 @@ def main():
     result=build(json.loads(a.input.read_text(encoding='utf-8-sig')),a.month)
     if a.input.resolve()==a.output.resolve():raise SystemExit('不得覆盖源文件')
     a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8');raise SystemExit(0 if result['passed'] else 2)
-if __name__=='__main__':
-    from diagnostics_bridge import observed
-    observed(main,'insurance_merge')
+if __name__=='__main__':main()

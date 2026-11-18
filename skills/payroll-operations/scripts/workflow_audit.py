@@ -94,6 +94,4 @@ def main():
         write_comment_review_csv(r,comment_csv);r['comment_review_csv']=str(comment_csv)
     a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(r,ensure_ascii=False,indent=2,default=str),encoding='utf-8');print(json.dumps(r,ensure_ascii=False,default=str))
     raise SystemExit(0 if r['passed'] else 2)
-if __name__=='__main__':
-    from diagnostics_bridge import observed
-    observed(main,'workflow_audit')
+if __name__=='__main__':main()

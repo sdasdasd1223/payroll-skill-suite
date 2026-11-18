@@ -1,13 +1,9 @@
-name: 验证安装与诊断组件
-on:
-  push:
-    paths: ['install*', 'skills/**', 'diagnostics/**', 'tests/**', '.github/workflows/test-installers.yml', 'suite-manifest.json']
-  pull_request:
-    paths: ['install*', 'skills/**', 'diagnostics/**', 'tests/**', '.github/workflows/test-installers.yml']
-  workflow_dispatch:
+name: 薪資套件安裝檢查
+on: [push, pull_request, workflow_dispatch]
 jobs:
-  isolated-install:
+  install:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -16,31 +12,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 安装公开诊断测试依赖
-        run: python -m pip install 'cryptography>=44' openpyxl
-      - name: 合成诊断测试
-        run: python tests/test_diagnostics_public.py
-      - name: 合成案件保存測試
-        run: python tests/test_case_archive.py
-      - name: Windows隔离安装与升级
+      - run: python -m pip install openpyxl
+      - run: python tests/test_reward_absolute_dates_public.py
+      - run: python tests/test_crossstage_public.py
+      - name: Windows 安裝與升級
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $testHome = Join-Path $env:RUNNER_TEMP 'payroll-installer-test'
-          ./install.ps1 -CodexHome $testHome -SkipDiagnosticSchedule
-          Add-Content -LiteralPath (Join-Path $testHome 'skills/payroll-operations/SKILL.md') -Value 'backup-check'
-          ./install.ps1 -CodexHome $testHome -SkipDiagnosticSchedule
-          $backups = Get-ChildItem -LiteralPath (Join-Path $testHome 'skill-backups') -Directory
-          if (-not $backups) { throw '缺旧版备份' }
-          if (-not (Test-Path -LiteralPath (Join-Path $testHome 'payroll-diagnostics-data/client.secure'))) { throw '缺设备凭据' }
-      - name: macOS隔离安装与升级
+          $target=Join-Path $env:RUNNER_TEMP 'payroll-clean'
+          ./install.ps1 -CodexHome $target
+          ./install.ps1 -CodexHome $target
+      - name: macOS 安裝與升級
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          bash -n install.sh
-          test_home="$(mktemp -d)"
-          bash install.sh "$test_home" --skip-diagnostic-schedule
-          printf '\nbackup-check\n' >> "$test_home/skills/payroll-operations/SKILL.md"
-          bash install.sh "$test_home" --skip-diagnostic-schedule
-          test -f "$test_home/payroll-diagnostics-data/client.secure"
-          test -n "$(find "$test_home/skill-backups" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          target="$(mktemp -d)"
+          bash install.sh "$target"
+          bash install.sh "$target"

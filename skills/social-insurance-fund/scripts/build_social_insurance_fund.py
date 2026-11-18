@@ -486,5 +486,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    from diagnostics_bridge import observed
-    raise SystemExit(observed(main,'insurance_merge'))
+    raise SystemExit(main())

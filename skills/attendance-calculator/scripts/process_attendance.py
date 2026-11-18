@@ -541,8 +541,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    from diagnostics_bridge import observed
-    try: observed(main,'process_attendance')
+    try: main()
     except (ValueError, FileNotFoundError) as exc:
         import sys
         print(str(exc), file=sys.stderr)
