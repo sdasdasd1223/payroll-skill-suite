@@ -1,13 +1,14 @@
 {
   "version": "2026.11.18.1",
-  "created_at": "2026-11-18T10:52:36.406146",
+  "created_at": "2026-11-18T10:54:53.537265",
   "files": {
+    ".gitattributes": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da",
     ".github/workflows/test-installers.yml": "b75126cf6ffc2ce17a00d00e1c5ac337f1fa610a47e8b4af4f624a0cc64e7423",
     ".gitignore": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
     "install.ps1": "2e570833e580e72b35e1b2cb6a12ccb0fde2aab4f5568e0b96935ab35ef9ccf4",
     "install.sh": "88f1733f5b534572fa9542626e8a24b3ff08ec0831fe09de588d678f0d0619e5",
     "README.md": "424e25e88301e7445d904838211ddb67479e5a358574772e6451361466805628",
-    "remove_automatic_records.py": "37fb83cdf75806f10c9c5637362934fae2b5fad492cc43a89a40ca50dce2125c",
+    "remove_automatic_records.py": "46356453fc4d30b0662a1feb7ab9c4d88937336ed160b00d12e63844ae763ee2",
     "skills/attendance-calculator/agents/openai.yaml": "685405666651f719926f07b8530bbaf4ccda1be551ebffd0a5ff0c1883bfb770",
     "skills/attendance-calculator/checksums.sha256": "608f1f4e33b819637ceab6476fc8b453c6c681105ae655ef6b91ffa369735af5",
     "skills/attendance-calculator/references/business-rules.md": "e8da59d1cb871a6c38e88b47a0536dce220a28fcb77a9631fe4ba3f1bc156aec",

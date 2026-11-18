@@ -3,7 +3,7 @@ from pathlib import Path
 import argparse,datetime,json,os,plistlib,shutil,subprocess,sys,uuid
 def main():
  p=argparse.ArgumentParser();p.add_argument('--codex-home',type=Path,required=True);a=p.parse_args();original=a.codex_home.absolute();home=original.resolve()
- if home!=original or home==Path(home.anchor):raise ValueError('安裝目錄不能是連結或磁碟根目錄')
+ if original.is_symlink() or home==Path(home.anchor):raise ValueError('安裝目錄不能是連結或磁碟根目錄')
  component=home/'payroll-diagnostics';backup=home/'skill-backups'/('disabled-recording-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+uuid.uuid4().hex[:6]);actions=[]
  if os.name=='nt':
   collector=str(component/'collector.py').replace("'","''")
