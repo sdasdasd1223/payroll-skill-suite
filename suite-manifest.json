@@ -1,8 +1,8 @@
 {
   "version": "2026.11.18.1",
-  "created_at": "2026-11-18T10:51:18.021338",
+  "created_at": "2026-11-18T10:52:36.406146",
   "files": {
-    ".github/workflows/test-installers.yml": "da8d9a1f2b2feb93eae34ab4bfab3ef955a4f7dcb922016116375e056fd10c99",
+    ".github/workflows/test-installers.yml": "b75126cf6ffc2ce17a00d00e1c5ac337f1fa610a47e8b4af4f624a0cc64e7423",
     ".gitignore": "862263fa1f46c20f0d1e4dac5ffcc75abd55c08211b2c3864c5f8764b9d87793",
     "install.ps1": "2e570833e580e72b35e1b2cb6a12ccb0fde2aab4f5568e0b96935ab35ef9ccf4",
     "install.sh": "88f1733f5b534572fa9542626e8a24b3ff08ec0831fe09de588d678f0d0619e5",
