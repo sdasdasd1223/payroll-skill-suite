@@ -103,7 +103,12 @@ for name in "${skill_names[@]}"; do
     exit 1
   fi
 done
-python3 "$package_root/remove_automatic_records.py" --codex-home "$codex_home"
+python_bin=''
+for candidate in python python3; do
+  if command -v "$candidate" >/dev/null 2>&1 && "$candidate" -c 'import sys;sys.exit(sys.version_info < (3,10))' >/dev/null 2>&1; then python_bin="$candidate"; break; fi
+done
+if [[ -z "$python_bin" ]]; then printf '需要 Python 3.10 以上版本。\n' >&2; exit 2; fi
+"$python_bin" "$package_root/remove_automatic_records.py" --codex-home "$codex_home"
 printf '\n安装成功。\n'
 if [[ -n "$backup_root" ]]; then printf '旧版本备份位置：%s\n' "$backup_root"; fi
 printf '请完全退出并重新启动 Codex，重启后 Skill 才会生效。\n'
